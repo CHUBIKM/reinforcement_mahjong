@@ -1,0 +1,75 @@
+# Training config for `python rl_policy.py train --config configs/train.toml`
+#
+# Notes:
+# - CLI args override values in this file.
+# - Device auto-select is used when `device` is omitted or set to empty.
+# - Rules can be customized under [rules].
+
+# Number of PPO updates (outer loop iterations).
+num_updates = 200
+
+# Random seed for numpy/torch/env initialization.
+seed = 42
+
+# Preferred device: "cuda", "mps", or "cpu". Leave empty/omit for auto.
+# device = "cpu"
+
+# Number of parallel self-play environments.
+num_envs = 64
+
+# Target transitions collected per update.
+target_transitions = 8192
+
+# PPO optimization epochs per update.
+ppo_epochs = 2
+
+# PPO mini-batch size.
+ppo_batch_size = 2048
+
+# GAE / PPO hyper-parameters.
+gamma = 0.99
+lam = 0.95
+clip_eps = 0.2
+vf_coef = 0.5
+ent_coef = 0.02
+
+# Optimizer / model size.
+lr = 0.0001
+hidden = 768
+
+# Reward shaping controls.
+step_penalty = 0.002
+reward_scale = 0.000125
+shaping_coef = 0.05
+
+# Logging interval (in updates).
+log_every = 10
+
+[rules]
+# Rule profile name (used for traceability/logging).
+name = "mahjongsoul_common"
+
+# RON / table flow toggles.
+allow_multi_ron = false
+use_dead_wall = true
+dead_wall_size = 14
+enable_kan = true
+max_kan_per_hand = 4
+
+# Abortive draw / special draw toggles.
+enable_nagashi_mangan = true
+enable_kyuushu_kyuuhai = true
+enable_suufon_renda = true
+enable_suucha_riichi = true
+enable_suukan_sanra = true
+
+# Scoring toggles.
+aka_dora_count = 3
+ura_dora_enabled = true
+kazoe_yakuman = true
+kiriage_mangan = false
+
+# Furiten behavior.
+enforce_furiten = true
+enforce_same_turn_furiten = true
+enforce_riichi_furiten = true

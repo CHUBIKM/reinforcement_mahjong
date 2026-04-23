@@ -1,0 +1,3 @@
+numpy>=1.24
+# Install torch manually for your platform if this line fails in your environment.
+torch>=2.2
