@@ -1,0 +1,18 @@
+[build-system]
+requires = [
+  "scikit-build-core>=0.10",
+  "pybind11>=2.12",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "reinforcement-mahjong"
+version = "0.1.0"
+description = "Riichi Mahjong engine with C++ core and Python RL training"
+requires-python = ">=3.10"
+
+[tool.scikit-build]
+wheel.packages = ["mahjong"]
+
+[tool.scikit-build.cmake]
+version = ">=3.18"
