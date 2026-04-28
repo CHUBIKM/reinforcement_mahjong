@@ -9,12 +9,12 @@
 
 namespace mahjong {
 
-// Lookup tables (replace std::set for O(1) access)
+// Lookup tables (O(1) access, replace std::set)
 inline constexpr std::array<bool, 34> IS_TERMINAL = {
-    true,  false, false, false, false, false, false, false, true,   // 0-8: manzu
-    true,  false, false, false, false, false, false, false, true,   // 9-17: pinzu
-    true,  false, false, false, false, false, false, false, true,   // 18-26: souzu
-    false, false, false, false, false, false, false                 // 27-33: honors
+    true,  false, false, false, false, false, false, false, true,
+    true,  false, false, false, false, false, false, false, true,
+    true,  false, false, false, false, false, false, false, true,
+    false, false, false, false, false, false, false
 };
 
 inline constexpr std::array<bool, 34> IS_HONOR = {
@@ -47,12 +47,12 @@ inline constexpr std::array<bool, 34> IS_TERMINAL_OR_HONOR = {
 
 // String conversion
 std::string tile_to_str(int t);
-std::string hand_to_str(const std::vector<int>& hand34);
+std::string hand_to_str(const std::array<int, 34>& hand34);
 
 // Hand manipulation
-void hand34_add(std::vector<int>& hand, int t);
-void hand34_remove(std::vector<int>& hand, int t);
-std::vector<int> copy_hand(const std::vector<int>& hand);
+void hand34_add(std::array<int, 34>& hand, int t);
+void hand34_remove(std::array<int, 34>& hand, int t);
+std::array<int, 34> copy_hand(const std::array<int, 34>& hand);
 
 // Wall generation
 std::vector<int> make_wall(std::mt19937& rng);
@@ -61,7 +61,7 @@ std::vector<int> make_wall(std::mt19937& rng);
 bool is_terminal_or_honor(int t);
 std::optional<int> tile_suit(int t);
 
-// Chi options: returns pairs (a, b) such that a, b + discarded tile form a sequence
+// Chi options
 std::vector<std::pair<int, int>> chi_options(int tile);
 
 }  // namespace mahjong

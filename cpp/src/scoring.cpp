@@ -25,7 +25,7 @@ int dora_from_indicator(int indicator) {
     throw std::invalid_argument("invalid indicator: " + std::to_string(indicator));
 }
 
-int count_dora(const std::vector<int>& hand34, const std::vector<int>& dora_indicators) {
+int count_dora(const Hand34& hand34, const std::vector<int>& dora_indicators) {
     int total = 0;
     for (int ind : dora_indicators) {
         int dora_tile = dora_from_indicator(ind);
@@ -173,7 +173,7 @@ std::vector<ShapeMeld> open_shape_melds(const std::vector<Meld>& melds) {
 }  // anonymous namespace
 
 int calculate_fu(const std::vector<Meld>& open_melds_vec,
-                 const std::vector<int>& hand34,
+                 const Hand34& hand34,
                  const std::string& win_type,
                  int win_tile,
                  int seat_wind, int round_wind,

@@ -9,7 +9,7 @@ namespace mahjong {
 // Helper predicates
 // ============================================================
 
-std::pair<std::set<int>, bool> count_suits_in_hand(const std::vector<int>& hand34) {
+std::pair<std::set<int>, bool> count_suits_in_hand(const Hand34& hand34) {
     std::set<int> suits;
     bool has_honor = false;
     for (int t = 0; t < 34; ++t) {
@@ -24,7 +24,7 @@ std::pair<std::set<int>, bool> count_suits_in_hand(const std::vector<int>& hand3
     return {suits, has_honor};
 }
 
-bool is_tanyao(const std::vector<int>& hand34) {
+bool is_tanyao(const Hand34& hand34) {
     for (int t = 0; t < 34; ++t) {
         if (hand34[t] <= 0) continue;
         if (is_terminal_or_honor(t)) return false;
@@ -152,7 +152,7 @@ bool each_meld_has_terminal_or_honor(int pair_tile, const std::vector<ShapeMeld>
     return true;
 }
 
-bool is_honroutou(const std::vector<int>& hand34, const std::vector<ShapeMeld>& melds) {
+bool is_honroutou(const Hand34& hand34, const std::vector<ShapeMeld>& melds) {
     for (int t = 0; t < 34; ++t) {
         if (hand34[t] <= 0) continue;
         if (!is_terminal_or_honor(t)) return false;
@@ -177,7 +177,7 @@ bool is_shousangen(int pair_tile, const std::vector<ShapeMeld>& melds) {
 // ============================================================
 
 std::pair<std::vector<std::pair<std::string, int>>, int> analyze_yaku(
-    const std::vector<int>& hand34,
+    const Hand34& hand34,
     const std::string& win_type,
     int seat_wind,
     int round_wind,

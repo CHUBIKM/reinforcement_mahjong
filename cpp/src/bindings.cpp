@@ -1,6 +1,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/operators.h>
 #include <pybind11/stl.h>
+#include <pybind11/numpy.h>
 
 #include "mahjong/engine.hpp"
 #include "mahjong/tile_utils.hpp"
@@ -86,6 +87,27 @@ static std::vector<Meld> py_to_melds(const py::object& obj) {
     return out;
 }
 
+static py::object info_value_to_py(const InfoValue& val) {
+    return std::visit([](const auto& v) -> py::object {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, int>) {
+            return py::cast(v);
+        } else if constexpr (std::is_same_v<T, std::string>) {
+            return py::cast(v);
+        } else if constexpr (std::is_same_v<T, bool>) {
+            return py::cast(v);
+        } else if constexpr (std::is_same_v<T, std::vector<int>>) {
+            return py::cast(v);
+        } else if constexpr (std::is_same_v<T, std::vector<std::pair<std::string, int>>>) {
+            py::list l;
+            for (const auto& [name, han] : v) {
+                l.append(py::make_tuple(name, han));
+            }
+            return l;
+        }
+    }, val);
+}
+
 static py::dict obs_to_py(const Observation& obs) {
     py::dict d;
     d["seat"] = obs.seat;
@@ -111,26 +133,59 @@ static py::dict obs_to_py(const Observation& obs) {
     return d;
 }
 
-static py::dict step_result_to_py(const StepResult& r) {
+static py::dict step_result_info_to_py(const std::map<std::string, InfoValue>& info) {
     py::dict d;
-    d["done"] = r.done;
-    d["reason"] = r.reason;
-    d["winner"] = r.winner >= 0 ? py::cast(r.winner) : py::none();
-    d["winners"] = r.winners;
-    d["loser"] = r.loser >= 0 ? py::cast(r.loser) : py::none();
-    d["score_delta"] = r.score_delta;
-    d["han"] = r.han;
-    d["fu"] = r.fu;
-
-    py::list yaku_list;
-    for (const auto& [name, han] : r.yaku_list) {
-        yaku_list.append(py::make_tuple(name, han));
+    for (const auto& [key, val] : info) {
+        d[key.c_str()] = info_value_to_py(val);
     }
-    d["yaku_list"] = yaku_list;
+    return d;
+}
 
-    d["payments"] = r.payments;
-    d["flags"] = r.flags;
-    d["info"] = py::dict();  // Simplified: skip complex info variant for now
+static py::dict pending_discard_to_py(const std::optional<PendingDiscard>& pd) {
+    if (!pd) return py::dict();
+    py::dict d;
+    d["player"] = pd->player;
+    d["tile"] = pd->tile;
+    d["actor"] = pd->actor;
+    d["claim_made"] = pd->claim_made;
+
+    py::list ronners;
+    for (int r : pd->ronners) ronners.append(r);
+    d["ronners"] = ronners;
+
+    py::list responders;
+    for (int r : pd->responders) responders.append(r);
+    d["responders"] = responders;
+
+    py::list pon_claims;
+    for (const auto& [seat, act] : pd->pon_claims) {
+        py::dict claim;
+        claim["player"] = seat;
+        claim["action"] = act;
+        pon_claims.append(claim);
+    }
+    d["pon_claims"] = pon_claims;
+
+    py::list minkan_claims;
+    for (const auto& [seat, act] : pd->minkan_claims) {
+        py::dict claim;
+        claim["player"] = seat;
+        claim["action"] = act;
+        minkan_claims.append(claim);
+    }
+    d["minkan_claims"] = minkan_claims;
+
+    if (pd->chi_claim.first >= 0) {
+        py::dict claim;
+        claim["player"] = pd->chi_claim.first;
+        claim["action"] = pd->chi_claim.second;
+        d["chi_claim"] = claim;
+    }
+
+    py::list passes;
+    for (int p : pd->passes) passes.append(p);
+    d["passes"] = passes;
+
     return d;
 }
 
@@ -140,7 +195,7 @@ static py::list events_to_py(const std::vector<GameEvent>& events) {
         py::dict d;
         d["type"] = evt.type;
         for (const auto& [key, val] : evt.data) {
-            std::visit([&](const auto& v) { d[key.c_str()] = v; }, val);
+            d[key.c_str()] = info_value_to_py(val);
         }
         out.append(d);
     }
@@ -176,11 +231,24 @@ static py::dict action_info_to_py(const Action& a) {
 }
 
 // ============================================================
+// Hand34 conversion helpers
+// ============================================================
+
+static Hand34 vec_to_hand34(const std::vector<int>& v) {
+    Hand34 h = {};
+    for (size_t i = 0; i < std::min(v.size(), size_t(34)); ++i) h[i] = v[i];
+    return h;
+}
+
+// ============================================================
 // PYBIND11_MODULE
 // ============================================================
 
 PYBIND11_MODULE(_mahjong_cpp, m) {
     m.doc() = "C++ Riichi Mahjong engine with pybind11 bindings";
+
+    // Constants
+    m.attr("OBS_DIM") = RiichiEngine::OBS_DIM;
 
     // Phase enum
     py::enum_<Phase>(m, "Phase")
@@ -265,6 +333,9 @@ PYBIND11_MODULE(_mahjong_cpp, m) {
         })
         .def_readonly("payments", &StepResult::payments)
         .def_readonly("flags", &StepResult::flags)
+        .def_property_readonly("info", [](const StepResult& r) -> py::dict {
+            return step_result_info_to_py(r.info);
+        })
         .def("__repr__", [](const StepResult& r) {
             return "<StepResult reason=" + r.reason + " done=" + (r.done ? "True" : "False") + ">";
         });
@@ -321,6 +392,12 @@ PYBIND11_MODULE(_mahjong_cpp, m) {
             int seat = seat_obj.is_none() ? -1 : py::cast<int>(seat_obj);
             return obs_to_py(e.get_obs(seat));
         }, py::arg("seat") = py::none())
+        .def("get_obs_array", [](RiichiEngine& e, int seat) -> py::array_t<float> {
+            auto buf = py::array_t<float>(RiichiEngine::OBS_DIM);
+            auto info = buf.request();
+            e.get_obs_array(seat, static_cast<float*>(info.ptr));
+            return buf;
+        }, py::arg("seat"))
         .def("validate_invariants", &RiichiEngine::validate_invariants)
         .def("export_replay", [](RiichiEngine& e) -> py::list {
             return events_to_py(e.export_replay());
@@ -330,12 +407,13 @@ PYBIND11_MODULE(_mahjong_cpp, m) {
         }, py::arg("max_steps") = 20000, py::arg("verbose") = false)
         .def("_should_abort_suufon_renda", &RiichiEngine::should_abort_suufon_renda)
         .def("_yaku_info_for_win", [](RiichiEngine& e, int winner, const std::string& win_type,
-                                       const std::vector<int>& hand34, py::object win_tile_obj) -> py::dict {
+                                       const std::vector<int>& hand34_vec, py::object win_tile_obj) -> py::dict {
             int win_tile = win_tile_obj.is_none() ? -1 : py::cast<int>(win_tile_obj);
-            auto info = e.yaku_info_for_win(winner, win_type, hand34, win_tile);
+            Hand34 h34 = vec_to_hand34(hand34_vec);
+            auto info = e.yaku_info_for_win(winner, win_type, h34, win_tile);
             py::dict d;
             for (const auto& [key, val] : info) {
-                std::visit([&](const auto& v) { d[key.c_str()] = v; }, val);
+                d[key.c_str()] = info_value_to_py(val);
             }
             return d;
         })
@@ -352,6 +430,10 @@ PYBIND11_MODULE(_mahjong_cpp, m) {
         .def_property_readonly("phase", [](const RiichiEngine& e) -> std::string {
             return phase_name(e.phase);
         })
+        .def_property_readonly("pending_discard", [](const RiichiEngine& e) -> py::dict {
+            return pending_discard_to_py(e.pending_discard);
+        })
+        .def_readwrite("logging_enabled", &RiichiEngine::logging_enabled)
         .def_readonly("scores", &RiichiEngine::scores)
         .def_readonly("honba", &RiichiEngine::honba)
         .def_readonly("riichi_sticks", &RiichiEngine::riichi_sticks);
@@ -359,15 +441,28 @@ PYBIND11_MODULE(_mahjong_cpp, m) {
     // Free functions
     m.def("tile_to_str", &tile_to_str);
     m.def("hand_to_str", &hand_to_str);
-    m.def("is_kokushi", &is_kokushi);
-    m.def("is_chiitoi", &is_chiitoi);
-    m.def("is_standard_agari", &is_standard_agari);
-    m.def("is_agari", &is_agari);
-    m.def("is_tenpai", &is_tenpai);
-    m.def("count_yaochu_types", &count_yaochu_types);
-    m.def("analyze_yaku", [](const std::vector<int>& hand34, const std::string& win_type,
+    m.def("is_kokushi", [](const std::vector<int>& v) -> bool {
+        return is_kokushi(vec_to_hand34(v));
+    });
+    m.def("is_chiitoi", [](const std::vector<int>& v) -> bool {
+        return is_chiitoi(vec_to_hand34(v));
+    });
+    m.def("is_standard_agari", [](const std::vector<int>& v) -> bool {
+        return is_standard_agari(vec_to_hand34(v));
+    });
+    m.def("is_agari", [](const std::vector<int>& v) -> bool {
+        return is_agari(vec_to_hand34(v));
+    });
+    m.def("is_tenpai", [](const std::vector<int>& v) -> bool {
+        return is_tenpai(vec_to_hand34(v));
+    });
+    m.def("count_yaochu_types", [](const std::vector<int>& v) -> int {
+        return count_yaochu_types(vec_to_hand34(v));
+    });
+    m.def("analyze_yaku", [](const std::vector<int>& hand34_vec, const std::string& win_type,
                               int seat_wind, int round_wind, bool is_closed) -> py::tuple {
-        auto [yakus, total_han] = analyze_yaku(hand34, win_type, seat_wind, round_wind, is_closed);
+        Hand34 h34 = vec_to_hand34(hand34_vec);
+        auto [yakus, total_han] = analyze_yaku(h34, win_type, seat_wind, round_wind, is_closed);
         py::list yaku_list;
         for (const auto& [name, han] : yakus) {
             yaku_list.append(py::make_tuple(name, han));
