@@ -427,8 +427,8 @@ PYBIND11_MODULE(_mahjong_cpp, m) {
         .def_readonly("turn", &RiichiEngine::turn)
         .def_readonly("done", &RiichiEngine::done)
         .def_readonly("dealer", &RiichiEngine::dealer)
-        .def_property_readonly("phase", [](const RiichiEngine& e) -> std::string {
-            return phase_name(e.phase);
+        .def_property_readonly("phase", [](const RiichiEngine& e) -> Phase {
+            return e.phase;
         })
         .def_property_readonly("pending_discard", [](const RiichiEngine& e) -> py::dict {
             return pending_discard_to_py(e.pending_discard);
