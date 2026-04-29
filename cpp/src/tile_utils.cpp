@@ -1,4 +1,5 @@
 #include "mahjong/tile_utils.hpp"
+#include "mahjong/types.hpp"
 
 #include <algorithm>
 #include <stdexcept>
@@ -116,6 +117,35 @@ std::vector<std::pair<int, int>> chi_options(int tile) {
         if (a / 9 == suit && b / 9 == suit) opts.emplace_back(a, b);
     }
     return opts;
+}
+
+// ============================================================
+// Enum to string conversions
+// ============================================================
+
+std::string phase_name(Phase p) {
+    switch (p) {
+        case Phase::DRAW: return "DRAW";
+        case Phase::DISCARD: return "DISCARD";
+        case Phase::RESPONSE: return "RESPONSE";
+        case Phase::END: return "END";
+        default: return "UNKNOWN";
+    }
+}
+
+std::string action_type_name(ActionType t) {
+    switch (t) {
+        case ActionType::DISCARD: return "DISCARD";
+        case ActionType::TSUMO: return "TSUMO";
+        case ActionType::RON: return "RON";
+        case ActionType::PASS: return "PASS";
+        case ActionType::CHI: return "CHI";
+        case ActionType::PON: return "PON";
+        case ActionType::KAN: return "KAN";
+        case ActionType::RIICHI: return "RIICHI";
+        case ActionType::ABORTIVE_DRAW: return "ABORTIVE_DRAW";
+        default: return "UNKNOWN";
+    }
 }
 
 }  // namespace mahjong
