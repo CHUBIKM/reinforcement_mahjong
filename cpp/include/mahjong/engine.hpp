@@ -6,6 +6,7 @@
 
 #include "mahjong/types.hpp"
 #include "mahjong/rule_config.hpp"
+#include "mahjong/hand_analysis.hpp"
 
 namespace mahjong {
 
@@ -41,6 +42,12 @@ public:
     bool open_call_happened = false;
     std::vector<bool> discard_was_called = {false, false, false, false};
 
+    // Public for RL adapter access (materialize_action reads pending_discard)
+    std::optional<PendingDiscard> pending_discard;
+
+    // Logging toggle — set false during training to skip event_log overhead
+    bool logging_enabled = true;
+
     // Core API
     void reset(int dealer = 0);
     int draw();
@@ -49,6 +56,11 @@ public:
     StepResult apply_action(const Action& action);
     StepResult step(int discard_tile);
     Observation get_obs(int seat = -1) const;
+
+    // Zero-copy observation: writes directly into a pre-allocated float buffer.
+    // Buffer must have at least OBS_DIM floats. Returns number of floats written.
+    int get_obs_array(int seat, float* buf) const;
+
     void validate_invariants() const;
     std::vector<GameEvent> export_replay() const;
     StepResult play_random(int max_steps = 20000, bool verbose = false);
@@ -56,11 +68,13 @@ public:
     // Internal helpers (public for testing)
     bool should_abort_suufon_renda() const;
     std::map<std::string, InfoValue> yaku_info_for_win(int winner, const std::string& win_type,
-                                                        const std::vector<int>& winning_hand34, int win_tile);
+                                                        const Hand34& winning_hand34, int win_tile);
+
+    // Observation dimension for RL
+    static constexpr int OBS_DIM = 34 + 34 + 34 + 4 + 4 + 8 + 4 + 4 + 4;
 
 private:
     std::mt19937 rng_;
-    std::optional<PendingDiscard> pending_discard_;
     std::vector<GameEvent> event_log_;
 
     void log_event(GameEvent evt);

@@ -28,7 +28,7 @@ void RiichiEngine::reset(int dealer_arg) {
     kan_count = 0;
     dora_indicators.clear();
     event_log_.clear();
-    pending_discard_.reset();
+    pending_discard.reset();
 
     cur = dealer_arg;
     dealer = dealer_arg;
@@ -44,7 +44,7 @@ void RiichiEngine::reset(int dealer_arg) {
     discard_was_called = {false, false, false, false};
 
     for (auto& p : players) {
-        p.hand34.assign(34, 0);
+        p.hand34.fill(0);
         p.river.clear();
         p.melds.clear();
         p.riichi_declared = false;
@@ -86,7 +86,7 @@ void RiichiEngine::reset(int dealer_arg) {
 // ============================================================
 
 void RiichiEngine::log_event(GameEvent evt) {
-    event_log_.push_back(std::move(evt));
+    if (logging_enabled) event_log_.push_back(std::move(evt));
 }
 
 void RiichiEngine::reveal_dora_indicator(int index) {
@@ -274,7 +274,7 @@ void RiichiEngine::discard_tile(int tile) {
     pd.tile = tile;
     pd.responders = responders;
     pd.actor = responders[0];
-    pending_discard_ = pd;
+    pending_discard = pd;
     phase = Phase::RESPONSE;
     cur = responders[0];
 }
@@ -299,7 +299,7 @@ void RiichiEngine::apply_pon(int actor, int tile, int discarder) {
     players[actor].melds.push_back({"pon", {tile, tile, tile}});
     cancel_ippatsu();
     log_event({"PON", {{"player", actor}, {"from", discarder}, {"tile", tile}}});
-    pending_discard_.reset();
+    pending_discard.reset();
     cur = actor;
     phase = Phase::DISCARD;
 }
@@ -313,7 +313,7 @@ void RiichiEngine::apply_chi(int actor, int tile, int use_a, int use_b, int disc
     players[actor].melds.push_back({"chi", seq});
     cancel_ippatsu();
     log_event({"CHI", {{"player", actor}, {"from", discarder}, {"tile", tile}}});
-    pending_discard_.reset();
+    pending_discard.reset();
     cur = actor;
     phase = Phase::DISCARD;
 }
@@ -329,7 +329,7 @@ StepResult RiichiEngine::apply_minkan(int actor, int tile, int discarder) {
         return finalize_abortive_draw("suukan_sanra");
     }
     reveal_dora_indicator(std::min(kan_count, 3));
-    pending_discard_.reset();
+    pending_discard.reset();
     cur = actor;
     phase = Phase::DISCARD;
     draw_from_rinshan();
@@ -367,7 +367,7 @@ std::vector<int> RiichiEngine::collect_chankan_ronners(int kan_actor, int tile) 
 
 std::map<std::string, InfoValue> RiichiEngine::yaku_info_for_win(
     int winner, const std::string& win_type,
-    const std::vector<int>& winning_hand34, int win_tile) {
+    const Hand34& winning_hand34, int win_tile) {
 
     auto [yakus, total_han] = analyze_yaku(
         winning_hand34, win_type, seat_winds[winner], round_wind, is_closed_hand(winner));
@@ -451,11 +451,11 @@ std::vector<Action> RiichiEngine::legal_actions() {
     }
 
     if (phase == Phase::RESPONSE) {
-        if (!pending_discard_) return {{ActionType::PASS}};
+        if (!pending_discard) return {{ActionType::PASS}};
 
-        int tile = pending_discard_->tile;
-        int discarder = pending_discard_->player;
-        int actor = pending_discard_->actor;
+        int tile = pending_discard->tile;
+        int discarder = pending_discard->player;
+        int actor = pending_discard->actor;
 
         // PASS is always legal
         actions.push_back({ActionType::PASS});
@@ -472,7 +472,7 @@ std::vector<Action> RiichiEngine::legal_actions() {
         }
 
         // If claim already made, only RON/PASS allowed
-        if (pending_discard_->claim_made) return actions;
+        if (pending_discard->claim_made) return actions;
 
         // PON
         if (!players[actor].riichi_declared && actor != discarder && players[actor].hand34[tile] >= 2) {
@@ -652,9 +652,9 @@ StepResult RiichiEngine::apply_action(const Action& action) {
     }
 
     if (phase == Phase::RESPONSE) {
-        if (!pending_discard_) throw std::runtime_error("RESPONSE 阶段但没有 pending_discard");
+        if (!pending_discard) throw std::runtime_error("RESPONSE 阶段但没有 pending_discard");
 
-        int actor = pending_discard_->actor;
+        int actor = pending_discard->actor;
         if (cur != actor) throw std::invalid_argument("当前不是该玩家的响应回合");
 
         auto legal_now = legal_actions();
@@ -671,49 +671,49 @@ StepResult RiichiEngine::apply_action(const Action& action) {
         if (!is_legal) throw std::invalid_argument("非法响应动作");
 
         if (action.type == ActionType::RON) {
-            pending_discard_->ronners.push_back(actor);
-            log_event({"RON_DECLARE", {{"winner", actor}, {"from", pending_discard_->player}, {"tile", pending_discard_->tile}}});
+            pending_discard->ronners.push_back(actor);
+            log_event({"RON_DECLARE", {{"winner", actor}, {"from", pending_discard->player}, {"tile", pending_discard->tile}}});
             if (!config.allow_multi_ron) {
                 return finalize_ron({actor});
             }
         } else if (action.type == ActionType::PON) {
-            pending_discard_->pon_claims.emplace_back(actor, action);
-            pending_discard_->claim_made = true;
-            log_event({"PON_DECLARE", {{"player", actor}, {"from", pending_discard_->player}, {"tile", pending_discard_->tile}}});
+            pending_discard->pon_claims.emplace_back(actor, action);
+            pending_discard->claim_made = true;
+            log_event({"PON_DECLARE", {{"player", actor}, {"from", pending_discard->player}, {"tile", pending_discard->tile}}});
         } else if (action.type == ActionType::KAN) {
-            pending_discard_->minkan_claims.emplace_back(actor, action);
-            pending_discard_->claim_made = true;
-            log_event({"MINKAN_DECLARE", {{"player", actor}, {"from", pending_discard_->player}, {"tile", pending_discard_->tile}}});
+            pending_discard->minkan_claims.emplace_back(actor, action);
+            pending_discard->claim_made = true;
+            log_event({"MINKAN_DECLARE", {{"player", actor}, {"from", pending_discard->player}, {"tile", pending_discard->tile}}});
         } else if (action.type == ActionType::CHI) {
-            pending_discard_->chi_claim = {actor, action};
-            pending_discard_->claim_made = true;
-            log_event({"CHI_DECLARE", {{"player", actor}, {"from", pending_discard_->player}, {"tile", pending_discard_->tile}}});
+            pending_discard->chi_claim = {actor, action};
+            pending_discard->claim_made = true;
+            log_event({"CHI_DECLARE", {{"player", actor}, {"from", pending_discard->player}, {"tile", pending_discard->tile}}});
         } else if (action.type == ActionType::PASS) {
-            pending_discard_->passes.insert(actor);
+            pending_discard->passes.insert(actor);
             if (had_ron_option) {
-                same_turn_furiten[actor].insert(pending_discard_->tile);
+                same_turn_furiten[actor].insert(pending_discard->tile);
             }
             log_event({"PASS", {{"player", actor}}});
         } else {
             throw std::invalid_argument("RESPONSE 阶段不支持该动作");
         }
 
-        const auto& responders = pending_discard_->responders;
+        const auto& responders = pending_discard->responders;
         int idx = -1;
         for (int i = 0; i < static_cast<int>(responders.size()); ++i) {
             if (responders[i] == actor) { idx = i; break; }
         }
         if (idx + 1 < static_cast<int>(responders.size())) {
             int next_actor = responders[idx + 1];
-            pending_discard_->actor = next_actor;
+            pending_discard->actor = next_actor;
             cur = next_actor;
             return StepResult{false, "continue", -1, {}, -1, {0,0,0,0}, 0, 0, {}, {}, {}, {}};
         }
 
         // All responders have acted: resolve priority
-        int discarder = pending_discard_->player;
-        int tile = pending_discard_->tile;
-        auto ronners = pending_discard_->ronners;
+        int discarder = pending_discard->player;
+        int tile = pending_discard->tile;
+        auto ronners = pending_discard->ronners;
 
         // 1) RON wins
         if (!ronners.empty()) {
@@ -721,8 +721,8 @@ StepResult RiichiEngine::apply_action(const Action& action) {
         }
 
         // 2) Minkan/Pon claims
-        const auto& minkan_claims = pending_discard_->minkan_claims;
-        const auto& pon_claims = pending_discard_->pon_claims;
+        const auto& minkan_claims = pending_discard->minkan_claims;
+        const auto& pon_claims = pending_discard->pon_claims;
         if (!minkan_claims.empty() || !pon_claims.empty()) {
             std::tuple<std::string, int, Action> chosen;
             bool found = false;
@@ -756,8 +756,8 @@ StepResult RiichiEngine::apply_action(const Action& action) {
         }
 
         // 3) Chi claim
-        if (pending_discard_->chi_claim.first >= 0) {
-            auto [chi_player, chi_action] = pending_discard_->chi_claim;
+        if (pending_discard->chi_claim.first >= 0) {
+            auto [chi_player, chi_action] = pending_discard->chi_claim;
             const auto& use = chi_action.info.use;
             if (use.size() != 2) throw std::runtime_error("CHI 声明缺少 use 信息");
             apply_chi(chi_player, tile, use[0], use[1], discarder);
@@ -765,7 +765,7 @@ StepResult RiichiEngine::apply_action(const Action& action) {
         }
 
         // 4) No claims: next player draws
-        pending_discard_.reset();
+        pending_discard.reset();
         int next_player = (discarder + 1) % 4;
         cur = next_player;
         phase = Phase::DRAW;
@@ -792,13 +792,13 @@ StepResult RiichiEngine::apply_action(const Action& action) {
 
 StepResult RiichiEngine::finalize_ron(const std::vector<int>& winners,
                                        int discarder, int tile, bool chankan) {
-    if (discarder < 0 && pending_discard_) discarder = pending_discard_->player;
-    if (tile < 0 && pending_discard_) tile = pending_discard_->tile;
+    if (discarder < 0 && pending_discard) discarder = pending_discard->player;
+    if (tile < 0 && pending_discard) tile = pending_discard->tile;
     if (discarder < 0 || tile < 0) throw std::runtime_error("无法结算荣和：缺少信息");
 
     done = true;
     phase = Phase::END;
-    pending_discard_.reset();
+    pending_discard.reset();
 
     std::vector<int> aggregate_delta(4, 0);
     std::map<std::string, int> payments;
@@ -883,6 +883,58 @@ Observation RiichiEngine::get_obs(int seat) const {
     obs.last_discard = last_discard;
     obs.last_discarder = last_discarder;
     return obs;
+}
+
+int RiichiEngine::get_obs_array(int seat, float* buf) const {
+    if (seat < 0) seat = cur;
+    float* p = buf;
+
+    // hand34 (34)
+    for (int t = 0; t < 34; ++t) *p++ = static_cast<float>(players[seat].hand34[t]);
+
+    // river histogram (34)
+    Hand34 river_hist = {};
+    for (int i = 0; i < 4; ++i)
+        for (int t : players[i].river) river_hist[t] += 1;
+    for (int t = 0; t < 34; ++t) *p++ = static_cast<float>(river_hist[t]);
+
+    // meld histogram (34)
+    Hand34 meld_hist = {};
+    for (int i = 0; i < 4; ++i)
+        for (const auto& m : players[i].melds)
+            for (int t : m.tiles) meld_hist[t] += 1;
+    for (int t = 0; t < 34; ++t) *p++ = static_cast<float>(meld_hist[t]);
+
+    // phase one-hot (4): DRAW/DISCARD/RESPONSE/END
+    *p++ = (phase == Phase::DRAW) ? 1.0f : 0.0f;
+    *p++ = (phase == Phase::DISCARD) ? 1.0f : 0.0f;
+    *p++ = (phase == Phase::RESPONSE) ? 1.0f : 0.0f;
+    *p++ = (phase == Phase::END) ? 1.0f : 0.0f;
+
+    // seat one-hot (4)
+    for (int i = 0; i < 4; ++i) *p++ = (i == seat) ? 1.0f : 0.0f;
+
+    // scalars (8)
+    *p++ = static_cast<float>(cur);
+    *p++ = static_cast<float>(turn);
+    *p++ = static_cast<float>(live_wall.size());
+    *p++ = static_cast<float>(dead_wall.size());
+    *p++ = static_cast<float>(last_discard);
+    *p++ = static_cast<float>(last_discarder);
+    *p++ = static_cast<float>(riichi_sticks);
+    *p++ = static_cast<float>(honba);
+
+    // dora indicators padded (4)
+    for (int i = 0; i < 4; ++i)
+        *p++ = (i < static_cast<int>(dora_indicators.size())) ? static_cast<float>(dora_indicators[i]) : -1.0f;
+
+    // scores normalized (4)
+    for (int i = 0; i < 4; ++i) *p++ = static_cast<float>(scores[i]) / 10000.0f;
+
+    // riichi_declared (4)
+    for (int i = 0; i < 4; ++i) *p++ = players[i].riichi_declared ? 1.0f : 0.0f;
+
+    return static_cast<int>(p - buf);
 }
 
 // ============================================================

@@ -17,7 +17,7 @@ struct PointResult {
 
 // Dora
 int dora_from_indicator(int indicator);
-int count_dora(const std::vector<int>& hand34, const std::vector<int>& dora_indicators);
+int count_dora(const Hand34& hand34, const std::vector<int>& dora_indicators);
 
 // Score level & base points
 std::string point_level(int han, int fu, bool kazoe_yakuman = true, bool kiriage_mangan = false);
@@ -31,9 +31,9 @@ PointResult resolve_tsumo(int winner, int han, int fu, int dealer,
                           int honba = 0, int riichi_sticks = 0,
                           bool kazoe_yakuman = true, bool kiriage_mangan = false);
 
-// Fu calculation (called from engine)
+// Fu calculation
 int calculate_fu(const std::vector<Meld>& open_melds,
-                 const std::vector<int>& hand34,
+                 const Hand34& hand34,
                  const std::string& win_type,
                  int win_tile,
                  int seat_wind, int round_wind,

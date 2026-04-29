@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -81,14 +82,14 @@ struct Meld {
 
 struct PlayerState {
     int seat = 0;
-    std::vector<int> hand34;                        // 34-element count vector
+    std::array<int, 34> hand34 = {};               // stack-allocated, cache-friendly
     std::vector<int> river;
     std::vector<Meld> melds;
     bool riichi_declared = false;
     int riichi_turn = -1;
 
-    PlayerState() : hand34(34, 0) {}
-    explicit PlayerState(int s) : seat(s), hand34(34, 0) {}
+    PlayerState() = default;
+    explicit PlayerState(int s) : seat(s) {}
 };
 
 // ============================================================
@@ -142,7 +143,7 @@ struct Observation {
     int dead_wall_len = 0;
     std::vector<int> dora_indicators;
     Phase phase = Phase::DRAW;
-    std::vector<int> hand34;
+    std::array<int, 34> hand34 = {};
     std::vector<std::vector<int>> rivers;         // 4 players
     std::vector<std::vector<Meld>> melds;         // 4 players
     std::vector<int> scores;
