@@ -1,8 +1,28 @@
 from __future__ import annotations
 
 from typing import Any, Callable
+import importlib.util
+import sys
+from importlib.machinery import EXTENSION_SUFFIXES
+from pathlib import Path
 
-from _mahjong_cpp import (
+_project_root = Path(__file__).parent.parent
+_module_path = next(
+    (_project_root / f"_mahjong_cpp{suffix}" for suffix in EXTENSION_SUFFIXES if (_project_root / f"_mahjong_cpp{suffix}").exists()),
+    None,
+)
+
+if _module_path is not None:
+    spec = importlib.util.spec_from_file_location("_mahjong_cpp", str(_module_path))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load _mahjong_cpp extension from {_module_path}")
+    _mahjong_cpp = importlib.util.module_from_spec(spec)
+    sys.modules["_mahjong_cpp"] = _mahjong_cpp
+    spec.loader.exec_module(_mahjong_cpp)
+else:
+    import _mahjong_cpp
+
+from _mahjong_cpp import (  # type: ignore
     Action,
     ActionType,
     Phase,

@@ -68,10 +68,12 @@ pip install -r requirements.txt
 ### 2) Build and install C++ engine
 
 ```bash
-pip install -e .
+python -m pip install -e .
 ```
 
-This compiles the C++ core and installs the module locally in editable mode.
+This compiles the C++ core and installs the module locally in editable mode. Use
+the same Python interpreter for build, tests, training, and evaluation; compiled
+extension modules are tied to the CPython ABI that built them.
 
 ### 3) Run engine random self-test
 
@@ -123,17 +125,21 @@ python -m mahjong.rl.trainer_mp train --config configs/train.toml
 
 # Or test the multiprocessing approach standalone
 python test_mp_collect.py --num-envs 64 --steps 10000 --mode both
+
+# Override worker count explicitly
+python -m mahjong.rl.trainer_mp train --config configs/train.toml --workers 8
 ```
 
 **How it works:**
 - Main process: GPU inference (model forward/backward passes)
-- Worker processes: Parallel environment stepping on CPU cores
+- Worker processes: Persistent C++ engines and parallel environment stepping on CPU cores
 - Communication: Observations → Main → GPU inference → Actions → Workers
+- Logs print `workers=...`, collection seconds, and collection steps/sec on the first update and every `log_every` updates.
 
 **Performance:**
 - Sequential: ~1-2k steps/sec (single core)
-- Multi-process: ~8-16k steps/sec (depends on CPU cores)
-- Typical speedup: 4-8x on 8-16 core systems
+- Multi-process: depends on CPU cores and IPC overhead
+- Typical speedup should be measured with `python test_mp_collect.py --mode both` on the target machine
 
 ## RTX 5090 Optimization
 
@@ -181,8 +187,12 @@ python rl_policy.py eval --episodes 8 --weights ppo_riichi.pt
 ## Tests
 
 ```bash
+python -m pip install -e .
 python -m unittest discover -s tests -p "test_*.py" -v
 ```
+
+Run both commands with the same Python interpreter to avoid loading a C++
+extension compiled for a different CPython version.
 
 **Test coverage:**
 - `test_engine.py`: Core engine logic, phase transitions, legal actions

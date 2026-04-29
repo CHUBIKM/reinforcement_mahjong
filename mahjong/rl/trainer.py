@@ -50,6 +50,7 @@ class TrainConfig:
     seed: int = 42
     device: Optional[str] = None
     num_envs: int = 64
+    num_workers: Optional[int] = None
     target_transitions: int = 8192
     ppo_epochs: int = 2
     ppo_batch_size: int = 2048

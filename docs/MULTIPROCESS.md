@@ -88,34 +88,23 @@ python test_mp_collect.py --num-envs 64 --steps 10000 --mode mp
 
 # Test only sequential
 python test_mp_collect.py --num-envs 64 --steps 10000 --mode seq
+
+# Train with an explicit worker count
+python -m mahjong.rl.trainer_mp train --config configs/train.toml --workers 8
 ```
 
 ### Option 3: Implement in your own training loop
 
 ```python
-from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import torch
+from mahjong.rl.trainer_mp import collect_parallel_batch_mp
 
-def collect_with_multiprocessing(engines, model, cfg, device, num_workers=8):
-    """Custom multiprocessing data collection."""
-    with ProcessPoolExecutor(max_workers=num_workers) as executor:
-        # Submit observation gathering tasks
-        futures = [executor.submit(gather_obs, e, i) for i, e in enumerate(engines)]
-
-        # Collect results
-        obs_list = []
-        for future in futures:
-            obs_list.append(future.result())
-
-        # Batch inference (on GPU)
-        x = torch.tensor(np.stack(obs_list), device=device)
-        with torch.no_grad():
-            logits, values = model(x)
-
-        # Apply actions (can also be parallelized)
-        # ...
+batch, stats = collect_parallel_batch_mp([], model, cfg, device, num_workers=8)
 ```
+
+Workers create and keep their own C++ engine instances. Do not submit
+`RiichiEngine` pybind objects to a process pool; they are not pickleable.
 
 ## Performance Comparison
 
@@ -172,7 +161,7 @@ num_workers = min(os.cpu_count() // 2, num_envs // 8)
 
 1. **Observation Gathering (Parallel)**
    - Each worker gathers observations from its assigned engines
-   - Uses `ProcessPoolExecutor` for easy management
+   - Workers own persistent C++ engine instances
    - Observations sent back to main process
 
 2. **Model Inference (Sequential, GPU)**

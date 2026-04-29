@@ -3,3 +3,13 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .DS_Store
+build/
+*.so
+*.dylib
+*.egg-info/
+dist/
+*.pt
+*.pth
+runs/
+checkpoints/
+artifacts/
