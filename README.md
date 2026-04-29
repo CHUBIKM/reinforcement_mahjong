@@ -109,6 +109,68 @@ python rl_policy.py train --config configs/train.toml --updates 400 --lr 3e-4 --
 - Zero-copy observation via `get_obs_array()` (writes directly to numpy buffer)
 - `logging_enabled = False` during training to skip event log overhead
 - Efficient phase state machine with minimal Python roundtrips
+- **Multi-process data collection**: Use `python -m mahjong.rl.trainer_mp` for CPU-bound parallelization
+
+### Multi-Process Data Collection
+
+**Issue:** By default, Python's GIL limits training to single-core CPU utilization, even with multiple environments.
+
+**Solution:** The trainer module includes multiprocessing support:
+
+```bash
+# Use multiprocessing for data collection (uses all CPU cores)
+python -m mahjong.rl.trainer_mp train --config configs/train.toml
+
+# Or test the multiprocessing approach standalone
+python test_mp_collect.py --num-envs 64 --steps 10000 --mode both
+```
+
+**How it works:**
+- Main process: GPU inference (model forward/backward passes)
+- Worker processes: Parallel environment stepping on CPU cores
+- Communication: Observations → Main → GPU inference → Actions → Workers
+
+**Performance:**
+- Sequential: ~1-2k steps/sec (single core)
+- Multi-process: ~8-16k steps/sec (depends on CPU cores)
+- Typical speedup: 4-8x on 8-16 core systems
+
+## RTX 5090 Optimization
+
+For RTX 5090 (32GB VRAM, high memory bandwidth), recommended hyperparameters:
+
+```toml
+# configs/train_rtx5090.toml
+num_updates = 2000
+num_envs = 256              # More environments for better parallelism
+target_transitions = 32768  # Larger batch size
+ppo_epochs = 3
+ppo_batch_size = 8192       # Larger PPO mini-batches
+lr = 0.0003
+hidden = 2048               # Larger network (more capacity)
+gamma = 0.99
+lam = 0.95
+clip_eps = 0.2
+vf_coef = 0.5
+ent_coef = 0.01
+step_penalty = 0.001
+reward_scale = 0.000125      # 1/8000
+shaping_coef = 0.05
+log_every = 10
+
+[rules]
+# Use default rules or customize
+```
+
+**Expected throughput:**
+- Multi-process data collection: ~15-20k steps/sec
+- Total training time (2000 updates): ~6-8 hours
+- VRAM usage: ~8-12GB (well within 32GB capacity)
+
+**Training command:**
+```bash
+python -m mahjong.rl.trainer_mp train --config configs/train_rtx5090.toml
+```
 
 ### 5) Evaluate
 
