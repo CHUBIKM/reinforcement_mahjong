@@ -276,7 +276,7 @@ PYBIND11_MODULE(_mahjong_cpp, m) {
         .def(py::init([](ActionType type, py::object tile, py::object info) {
             return make_action(type, tile, info);
         }), py::arg("type"), py::arg("tile") = py::none(), py::arg("info") = py::dict())
-        .def_readonly("type", [](const Action& a) -> ActionType { return a.type; })
+        .def_property_readonly("type", [](const Action& a) -> ActionType { return a.type; })
         .def_property_readonly("tile", [](const Action& a) -> py::object {
             return a.tile >= 0 ? py::cast(a.tile) : py::none();
         })
