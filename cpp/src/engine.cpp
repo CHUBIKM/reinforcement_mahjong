@@ -518,6 +518,10 @@ StepResult RiichiEngine::apply_action(const Action& action) {
         return StepResult{true, "already_done", -1, {}, -1, {0,0,0,0}, 0, 0, {}, {}, {}, {{"turn", turn}}};
     }
 
+    if (phase == Phase::DRAW) {
+        throw std::invalid_argument("当前是 DRAW 阶段，需要先调用 draw() 摸牌");
+    }
+
     if (phase == Phase::DISCARD) {
         if (action.type == ActionType::TSUMO) {
             if (!is_agari(players[cur].hand34)) {
