@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.18)
 project(reinforcement_mahjong_cpp LANGUAGES CXX)
 
+set(PYBIND11_FINDPYTHON ON)
 find_package(pybind11 CONFIG REQUIRED)
 
 set(MAHJONG_SOURCES

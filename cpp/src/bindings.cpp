@@ -340,6 +340,12 @@ PYBIND11_MODULE(_mahjong_cpp, m) {
             return "<StepResult reason=" + r.reason + " done=" + (r.done ? "True" : "False") + ">";
         });
 
+    // PointResult
+    py::class_<PointResult>(m, "PointResult")
+        .def_readonly("score_delta", &PointResult::score_delta)
+        .def_readonly("payments", &PointResult::payments)
+        .def_readonly("level", &PointResult::level);
+
     // RuleConfig
     py::class_<RuleConfig>(m, "RuleConfig")
         .def(py::init<>())
@@ -419,28 +425,54 @@ PYBIND11_MODULE(_mahjong_cpp, m) {
         })
         .def_readonly("config", &RiichiEngine::config)
         .def_readonly("players", &RiichiEngine::players)
-        .def_readonly("live_wall", &RiichiEngine::live_wall)
-        .def_readonly("dead_wall", &RiichiEngine::dead_wall)
-        .def_readonly("kan_count", &RiichiEngine::kan_count)
-        .def_readonly("dora_indicators", &RiichiEngine::dora_indicators)
-        .def_readonly("cur", &RiichiEngine::cur)
-        .def_readonly("turn", &RiichiEngine::turn)
-        .def_readonly("done", &RiichiEngine::done)
-        .def_readonly("dealer", &RiichiEngine::dealer)
-        .def_property_readonly("phase", [](const RiichiEngine& e) -> Phase {
-            return e.phase;
-        })
+        .def_readwrite("live_wall", &RiichiEngine::live_wall)
+        .def_readwrite("dead_wall", &RiichiEngine::dead_wall)
+        .def_readwrite("kan_count", &RiichiEngine::kan_count)
+        .def_readwrite("dora_indicators", &RiichiEngine::dora_indicators)
+        .def_readwrite("cur", &RiichiEngine::cur)
+        .def_readwrite("turn", &RiichiEngine::turn)
+        .def_readwrite("done", &RiichiEngine::done)
+        .def_readwrite("dealer", &RiichiEngine::dealer)
+        .def_readwrite("phase", &RiichiEngine::phase)
+        .def_readwrite("last_draw", &RiichiEngine::last_draw)
+        .def_readwrite("last_discard", &RiichiEngine::last_discard)
+        .def_readwrite("last_discarder", &RiichiEngine::last_discarder)
+        .def_readwrite("round_wind", &RiichiEngine::round_wind)
+        .def_readwrite("seat_winds", &RiichiEngine::seat_winds)
+        .def_readwrite("scores", &RiichiEngine::scores)
+        .def_readwrite("honba", &RiichiEngine::honba)
+        .def_readwrite("riichi_sticks", &RiichiEngine::riichi_sticks)
+        .def_readwrite("ippatsu_active", &RiichiEngine::ippatsu_active)
+        .def_readwrite("first_discards", &RiichiEngine::first_discards)
+        .def_readwrite("open_call_happened", &RiichiEngine::open_call_happened)
+        .def_readwrite("discard_was_called", &RiichiEngine::discard_was_called)
         .def_property_readonly("pending_discard", [](const RiichiEngine& e) -> py::dict {
             return pending_discard_to_py(e.pending_discard);
         })
-        .def_readwrite("logging_enabled", &RiichiEngine::logging_enabled)
-        .def_readonly("scores", &RiichiEngine::scores)
-        .def_readonly("honba", &RiichiEngine::honba)
-        .def_readonly("riichi_sticks", &RiichiEngine::riichi_sticks);
+        .def_readwrite("logging_enabled", &RiichiEngine::logging_enabled);
 
     // Free functions
     m.def("tile_to_str", &tile_to_str);
     m.def("hand_to_str", &hand_to_str);
+    m.def("dora_from_indicator", &dora_from_indicator);
+    m.def("count_dora", [](const std::vector<int>& hand34_vec,
+                            const std::vector<int>& dora_indicators) -> int {
+        return count_dora(vec_to_hand34(hand34_vec), dora_indicators);
+    }, py::arg("hand34"), py::arg("dora_indicators"));
+    m.def("point_level", &point_level,
+          py::arg("han"), py::arg("fu"), py::arg("kazoe_yakuman") = true,
+          py::arg("kiriage_mangan") = false);
+    m.def("base_points", &base_points,
+          py::arg("han"), py::arg("fu"), py::arg("kazoe_yakuman") = true,
+          py::arg("kiriage_mangan") = false);
+    m.def("resolve_ron", &resolve_ron,
+          py::arg("winner"), py::arg("loser"), py::arg("han"), py::arg("fu"),
+          py::arg("dealer"), py::arg("honba") = 0, py::arg("riichi_sticks") = 0,
+          py::arg("kazoe_yakuman") = true, py::arg("kiriage_mangan") = false);
+    m.def("resolve_tsumo", &resolve_tsumo,
+          py::arg("winner"), py::arg("han"), py::arg("fu"), py::arg("dealer"),
+          py::arg("honba") = 0, py::arg("riichi_sticks") = 0,
+          py::arg("kazoe_yakuman") = true, py::arg("kiriage_mangan") = false);
     m.def("is_kokushi", [](const std::vector<int>& v) -> bool {
         return is_kokushi(vec_to_hand34(v));
     });

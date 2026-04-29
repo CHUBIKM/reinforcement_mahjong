@@ -17,6 +17,9 @@ seed = 42
 # Number of parallel self-play environments.
 num_envs = 64
 
+# Number of multiprocessing environment workers. Leave unset for auto.
+num_workers = 8
+
 # Target transitions collected per update.
 target_transitions = 8192
 

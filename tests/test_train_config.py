@@ -10,6 +10,7 @@ class TrainConfigTests(unittest.TestCase):
         toml_text = """
 num_updates = 12
 num_envs = 8
+num_workers = 4
 target_transitions = 1024
 lr = 0.0003
 
@@ -25,6 +26,7 @@ enable_suucha_riichi = false
 
         self.assertEqual(cfg.num_updates, 12)
         self.assertEqual(cfg.num_envs, 8)
+        self.assertEqual(cfg.num_workers, 4)
         self.assertEqual(cfg.target_transitions, 1024)
         self.assertAlmostEqual(cfg.lr, 0.0003)
         self.assertTrue(cfg.rules.allow_multi_ron)
