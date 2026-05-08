@@ -20,16 +20,20 @@ int dora_from_indicator(int indicator);
 int count_dora(const Hand34& hand34, const std::vector<int>& dora_indicators);
 
 // Score level & base points
-std::string point_level(int han, int fu, bool kazoe_yakuman = true, bool kiriage_mangan = false);
-int base_points(int han, int fu, bool kazoe_yakuman = true, bool kiriage_mangan = false);
+std::string point_level(int han, int fu, bool kazoe_yakuman = true,
+                        bool kiriage_mangan = false, int yakuman_count = 0);
+int base_points(int han, int fu, bool kazoe_yakuman = true,
+                bool kiriage_mangan = false, int yakuman_count = 0);
 
 // Payment resolution
 PointResult resolve_ron(int winner, int loser, int han, int fu, int dealer,
                         int honba = 0, int riichi_sticks = 0,
-                        bool kazoe_yakuman = true, bool kiriage_mangan = false);
+                        bool kazoe_yakuman = true, bool kiriage_mangan = false,
+                        int yakuman_count = 0);
 PointResult resolve_tsumo(int winner, int han, int fu, int dealer,
                           int honba = 0, int riichi_sticks = 0,
-                          bool kazoe_yakuman = true, bool kiriage_mangan = false);
+                          bool kazoe_yakuman = true, bool kiriage_mangan = false,
+                          int yakuman_count = 0);
 
 // Fu calculation
 int calculate_fu(const std::vector<Meld>& open_melds,

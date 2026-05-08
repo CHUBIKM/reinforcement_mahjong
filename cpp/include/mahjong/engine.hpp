@@ -68,7 +68,13 @@ public:
     // Internal helpers (public for testing)
     bool should_abort_suufon_renda() const;
     std::map<std::string, InfoValue> yaku_info_for_win(int winner, const std::string& win_type,
-                                                        const Hand34& winning_hand34, int win_tile);
+                                                        const Hand34& winning_hand34, int win_tile,
+                                                        bool riichi = false,
+                                                        bool ippatsu = false,
+                                                        bool rinshan = false,
+                                                        bool chankan = false,
+                                                        bool haitei = false,
+                                                        bool houtei = false);
 
     // Observation dimension for RL
     static constexpr int OBS_DIM = 34 + 34 + 34 + 4 + 4 + 8 + 4 + 4 + 4;
@@ -82,6 +88,15 @@ private:
     int draw_from_rinshan();
     bool is_closed_hand(int seat) const;
     std::vector<int> riichi_discard_candidates(int seat) const;
+    Hand34 winning_hand_for_score(int seat, const Hand34& concealed_hand) const;
+    bool can_win_with_tile(int seat, int tile) const;
+    std::vector<int> winning_tiles(int seat) const;
+    bool has_counting_yaku(int winner, const std::string& win_type,
+                           const Hand34& winning_hand34, int win_tile,
+                           bool riichi = false, bool ippatsu = false,
+                           bool rinshan = false, bool chankan = false,
+                           bool haitei = false, bool houtei = false);
+    bool riichi_ankan_keeps_waits(int tile) const;
     bool is_furiten(int seat, int tile) const;
     void cancel_ippatsu();
     bool should_abort_suucha_riichi() const;

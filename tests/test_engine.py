@@ -3,6 +3,13 @@ import unittest
 from mahjong.engine import Action, ActionType, Phase, RiichiEngine
 
 
+def hand_from_tiles(tiles):
+    hand = [0] * 34
+    for tile in tiles:
+        hand[tile] += 1
+    return hand
+
+
 class EngineTests(unittest.TestCase):
     def test_random_play_keeps_tile_invariants(self):
         eng = RiichiEngine(seed=7)
@@ -167,6 +174,196 @@ class EngineTests(unittest.TestCase):
         eng.players[seat].hand34 = hand
         y = eng._yaku_info_for_win(seat, "ron", hand, 31)
         self.assertEqual(y["fu"], 40)
+
+    def test_open_hand_ron_is_legal(self):
+        eng = RiichiEngine(seed=16)
+        eng.reset(dealer=0)
+        eng.phase = Phase.DISCARD
+        eng.cur = 0
+
+        eng.players[0].hand34 = hand_from_tiles([26])
+        eng.players[1].hand34 = hand_from_tiles([1, 2, 3, 12, 13, 14, 24, 25, 22, 22])
+        eng.players[1].melds = [("pon", [31, 31, 31])]
+        eng.players[2].hand34 = [0] * 34
+        eng.players[3].hand34 = [0] * 34
+
+        eng.apply_action(Action(ActionType.DISCARD, tile=26))
+        self.assertTrue(any(a.type == ActionType.RON for a in eng.legal_actions()))
+
+    def test_no_yaku_ron_is_not_legal(self):
+        eng = RiichiEngine(seed=160)
+        eng.reset(dealer=0)
+        eng.phase = Phase.DISCARD
+        eng.cur = 0
+        eng.live_wall = [5]
+
+        eng.players[0].hand34 = hand_from_tiles([3])
+        eng.players[1].hand34 = hand_from_tiles([1, 2, 9, 10, 11, 12, 13, 14, 18, 19, 20, 31, 31])
+        eng.players[2].hand34 = [0] * 34
+        eng.players[3].hand34 = [0] * 34
+
+        eng.apply_action(Action(ActionType.DISCARD, tile=3))
+        self.assertFalse(any(a.type == ActionType.RON for a in eng.legal_actions()))
+
+    def test_houtei_can_supply_only_yaku_for_ron(self):
+        eng = RiichiEngine(seed=161)
+        eng.reset(dealer=0)
+        eng.phase = Phase.DISCARD
+        eng.cur = 0
+        eng.live_wall = []
+
+        eng.players[0].hand34 = hand_from_tiles([3])
+        eng.players[1].hand34 = hand_from_tiles([1, 2, 9, 10, 11, 12, 13, 14, 18, 19, 20, 31, 31])
+        eng.players[2].hand34 = [0] * 34
+        eng.players[3].hand34 = [0] * 34
+
+        eng.apply_action(Action(ActionType.DISCARD, tile=3))
+        ron = next(a for a in eng.legal_actions() if a.type == ActionType.RON)
+        res = eng.apply_action(ron)
+
+        self.assertTrue(res.done)
+        self.assertIn(("河底捞鱼", 1), res.yaku_list)
+        self.assertTrue(res.flags.get("houtei", False))
+
+    def test_open_hand_tsumo_is_legal(self):
+        eng = RiichiEngine(seed=17)
+        eng.reset(dealer=0)
+        eng.phase = Phase.DISCARD
+        eng.cur = 1
+
+        eng.players[1].hand34 = hand_from_tiles([1, 2, 3, 12, 13, 14, 24, 25, 26, 22, 22])
+        eng.players[1].melds = [("pon", [31, 31, 31])]
+
+        self.assertTrue(any(a.type == ActionType.TSUMO for a in eng.legal_actions()))
+
+    def test_kan_meld_hand_tsumo_is_legal(self):
+        eng = RiichiEngine(seed=18)
+        eng.reset(dealer=0)
+        eng.phase = Phase.DISCARD
+        eng.cur = 2
+
+        eng.players[2].hand34 = hand_from_tiles([1, 2, 3, 12, 13, 14, 24, 25, 26, 22, 22])
+        eng.players[2].melds = [("minkan", [31, 31, 31, 31])]
+
+        self.assertTrue(any(a.type == ActionType.TSUMO for a in eng.legal_actions()))
+
+    def test_non_dealer_kyuushu_kyuuhai_action_available(self):
+        eng = RiichiEngine(seed=19)
+        eng.reset(dealer=0)
+        eng.phase = Phase.DISCARD
+        eng.cur = 1
+        eng.open_call_happened = False
+
+        for p in eng.players:
+            p.river = []
+        eng.players[0].river = [5]
+
+        hand = [0] * 34
+        for t in [0, 8, 9, 17, 18, 26, 27, 28, 29]:
+            hand[t] = 1
+        hand[1] = 5
+        eng.players[1].hand34 = hand
+
+        self.assertTrue(any(a.type == ActionType.ABORTIVE_DRAW for a in eng.legal_actions()))
+
+    def test_riichi_player_must_discard_last_draw(self):
+        eng = RiichiEngine(seed=20)
+        eng.reset(dealer=0)
+        eng.phase = Phase.DISCARD
+        eng.cur = 0
+        eng.players[0].riichi_declared = True
+        eng.last_draw = 13
+        eng.players[0].hand34 = hand_from_tiles([0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 13])
+
+        discards = [a.tile for a in eng.legal_actions() if a.type == ActionType.DISCARD]
+        self.assertEqual(discards, [13])
+
+    def test_permanent_furiten_blocks_all_waits(self):
+        eng = RiichiEngine(seed=21)
+        eng.reset(dealer=0)
+        eng.phase = Phase.DISCARD
+        eng.cur = 0
+
+        eng.players[0].hand34 = hand_from_tiles([3])
+        eng.players[1].hand34 = hand_from_tiles([1, 2, 9, 10, 11, 12, 13, 14, 18, 19, 20, 31, 31])
+        eng.players[1].river = [0]
+        eng.players[2].hand34 = [0] * 34
+        eng.players[3].hand34 = [0] * 34
+
+        eng.apply_action(Action(ActionType.DISCARD, tile=3))
+        self.assertFalse(any(a.type == ActionType.RON for a in eng.legal_actions()))
+
+    def test_riichi_missed_ron_furiten_persists_after_draw(self):
+        eng = RiichiEngine(seed=22)
+        eng.reset(dealer=0)
+        eng.phase = Phase.DISCARD
+        eng.cur = 0
+
+        tenpai = hand_from_tiles([1, 2, 9, 10, 11, 12, 13, 14, 18, 19, 20, 31, 31])
+        eng.players[0].hand34 = hand_from_tiles([3, 4])
+        eng.players[1].hand34 = list(tenpai)
+        eng.players[1].riichi_declared = True
+        eng.players[2].hand34 = [0] * 34
+        eng.players[3].hand34 = [0] * 34
+
+        eng.apply_action(Action(ActionType.DISCARD, tile=3))
+        self.assertTrue(any(a.type == ActionType.RON for a in eng.legal_actions()))
+        eng.apply_action(Action(ActionType.PASS))
+        eng.apply_action(Action(ActionType.PASS))
+        eng.apply_action(Action(ActionType.PASS))
+
+        eng.cur = 1
+        eng.phase = Phase.DRAW
+        eng.draw()
+
+        eng.players[1].hand34 = list(tenpai)
+        eng.players[0].hand34 = hand_from_tiles([0])
+        eng.phase = Phase.DISCARD
+        eng.cur = 0
+        eng.apply_action(Action(ActionType.DISCARD, tile=0))
+        self.assertFalse(any(a.type == ActionType.RON for a in eng.legal_actions()))
+
+    def test_riichi_ippatsu_pinfu_tsumo_are_scored(self):
+        eng = RiichiEngine(seed=23)
+        eng.reset(dealer=0)
+        eng.phase = Phase.DISCARD
+        eng.cur = 0
+        eng.dora_indicators = []
+        eng.players[0].riichi_declared = True
+        eng.ippatsu_active = [True, False, False, False]
+        eng.last_draw = 14
+        eng.players[0].hand34 = hand_from_tiles([0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 19, 19])
+
+        res = eng.apply_action(Action(ActionType.TSUMO))
+        names = [name for name, _ in res.yaku_list]
+
+        self.assertTrue(res.done)
+        self.assertIn("立直", names)
+        self.assertIn("一发", names)
+        self.assertIn("门前清自摸和", names)
+        self.assertIn("平和", names)
+        self.assertEqual(res.han, 6)
+
+    def test_chankan_is_counted_as_yaku(self):
+        eng = RiichiEngine(seed=24)
+        eng.reset(dealer=0)
+        eng.phase = Phase.DISCARD
+        eng.cur = 0
+        eng.dora_indicators = []
+
+        eng.players[0].hand34 = hand_from_tiles([3])
+        eng.players[0].melds = [("pon", [3, 3, 3])]
+
+        eng.players[1].hand34 = hand_from_tiles([1, 2, 9, 10, 11, 12, 13, 14, 18, 19, 20, 31, 31])
+        eng.players[2].hand34 = [0] * 34
+        eng.players[3].hand34 = [0] * 34
+
+        res = eng.apply_action(Action(ActionType.KAN, tile=3, info={"kan_type": "KAKAN"}))
+        names = [name for name, _ in res.yaku_list]
+
+        self.assertTrue(res.done)
+        self.assertIn("抢杠", names)
+        self.assertTrue(res.flags.get("chankan", False))
 
 
 if __name__ == "__main__":

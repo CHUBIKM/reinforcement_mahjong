@@ -9,6 +9,93 @@
 
 namespace mahjong {
 
+namespace {
+
+int hand_total(const Hand34& hand) {
+    int total = 0;
+    for (int c : hand) total += c;
+    return total;
+}
+
+int exposed_meld_count(const std::vector<Meld>& melds) {
+    return static_cast<int>(melds.size());
+}
+
+void add_meld_structure_tiles(Hand34& hand, const Meld& meld) {
+    int n = 0;
+    if (meld.type == "chi" || meld.type == "pon") {
+        n = 3;
+    } else if (meld.type == "minkan" || meld.type == "kakan" || meld.type == "ankan") {
+        n = 3;  // A kan occupies one meld slot for hand shape purposes.
+    }
+    for (int i = 0; i < n && i < static_cast<int>(meld.tiles.size()); ++i) {
+        hand34_add(hand, meld.tiles[i]);
+    }
+}
+
+bool concealed_complete_with_meld_count(const Hand34& concealed, int meld_count) {
+    if (meld_count == 0) {
+        return is_agari(concealed);
+    }
+
+    int target_melds = 4 - meld_count;
+    if (target_melds < 0) return false;
+    if (hand_total(concealed) != target_melds * 3 + 2) return false;
+    return !gen_concealed_decompositions(concealed, target_melds).empty();
+}
+
+std::vector<int> waits_for_concealed(const Hand34& concealed, int meld_count) {
+    std::vector<int> waits;
+    for (int t = 0; t < 34; ++t) {
+        if (concealed[t] >= 4) continue;
+        auto tmp = concealed;
+        tmp[t] += 1;
+        if (concealed_complete_with_meld_count(tmp, meld_count)) {
+            waits.push_back(t);
+        }
+    }
+    return waits;
+}
+
+bool contains_tile(const std::vector<int>& tiles, int tile) {
+    return std::find(tiles.begin(), tiles.end(), tile) != tiles.end();
+}
+
+bool intersects_waits(const std::unordered_set<int>& tiles, const std::vector<int>& waits) {
+    for (int t : waits) {
+        if (tiles.count(t)) return true;
+    }
+    return false;
+}
+
+bool same_tiles(std::vector<int> a, std::vector<int> b) {
+    std::sort(a.begin(), a.end());
+    std::sort(b.begin(), b.end());
+    return a == b;
+}
+
+bool is_counting_yaku_name(const std::string& name) {
+    return name != "宝牌" && name != "里宝牌" && name != "赤宝牌";
+}
+
+bool has_counting_yaku_in_list(const std::vector<std::pair<std::string, int>>& yakus) {
+    return std::any_of(yakus.begin(), yakus.end(), [](const auto& yaku) {
+        return yaku.second > 0 && is_counting_yaku_name(yaku.first);
+    });
+}
+
+int yakuman_count_from_yakus(const std::vector<std::pair<std::string, int>>& yakus) {
+    int count = 0;
+    for (const auto& [name, han] : yakus) {
+        if (name.find("役满") != std::string::npos) {
+            count += std::max(1, han / 13);
+        }
+    }
+    return count;
+}
+
+}  // namespace
+
 RiichiEngine::RiichiEngine(int seed, RuleConfig config)
     : config(std::move(config)),
       rng_(static_cast<uint32_t>(seed)),
@@ -137,11 +224,72 @@ std::vector<int> RiichiEngine::riichi_discard_candidates(int seat) const {
     return cands;
 }
 
+Hand34 RiichiEngine::winning_hand_for_score(int seat, const Hand34& concealed_hand) const {
+    auto full_hand = concealed_hand;
+    for (const auto& meld : players[seat].melds) {
+        add_meld_structure_tiles(full_hand, meld);
+    }
+    return full_hand;
+}
+
+bool RiichiEngine::can_win_with_tile(int seat, int tile) const {
+    if (tile < 0 || tile >= 34) return false;
+    if (players[seat].hand34[tile] >= 4) return false;
+    auto tmp = copy_hand(players[seat].hand34);
+    tmp[tile] += 1;
+    return concealed_complete_with_meld_count(tmp, exposed_meld_count(players[seat].melds));
+}
+
+std::vector<int> RiichiEngine::winning_tiles(int seat) const {
+    return waits_for_concealed(players[seat].hand34, exposed_meld_count(players[seat].melds));
+}
+
+bool RiichiEngine::has_counting_yaku(int winner, const std::string& win_type,
+                                     const Hand34& winning_hand34, int win_tile,
+                                     bool riichi, bool ippatsu, bool rinshan,
+                                     bool chankan, bool haitei, bool houtei) {
+    auto info = yaku_info_for_win(winner, win_type, winning_hand34, win_tile,
+                                  riichi, ippatsu, rinshan, chankan, haitei, houtei);
+    auto yakus = std::get<std::vector<std::pair<std::string,int>>>(info["yaku"]);
+    return has_counting_yaku_in_list(yakus);
+}
+
+bool RiichiEngine::riichi_ankan_keeps_waits(int tile) const {
+    if (!players[cur].riichi_declared) return true;
+    if (tile < 0 || tile >= 34) return false;
+    if (last_draw != tile) return false;
+    if (players[cur].hand34[tile] != 4) return false;
+
+    auto before_draw = copy_hand(players[cur].hand34);
+    if (last_draw >= 0 && before_draw[last_draw] > 0) {
+        before_draw[last_draw] -= 1;
+    }
+    auto before_waits = waits_for_concealed(before_draw, exposed_meld_count(players[cur].melds));
+
+    auto after_kan = copy_hand(players[cur].hand34);
+    for (int i = 0; i < 4; ++i) {
+        if (after_kan[tile] <= 0) return false;
+        after_kan[tile] -= 1;
+    }
+    auto after_waits = waits_for_concealed(after_kan, exposed_meld_count(players[cur].melds) + 1);
+    return same_tiles(before_waits, after_waits);
+}
+
 bool RiichiEngine::is_furiten(int seat, int tile) const {
     if (!config.enforce_furiten) return false;
-    bool permanent = std::find(players[seat].river.begin(), players[seat].river.end(), tile) != players[seat].river.end();
-    bool same_turn = config.enforce_same_turn_furiten && same_turn_furiten[seat].count(tile);
-    bool riichi_furiten = config.enforce_riichi_furiten && players[seat].riichi_declared && same_turn;
+    auto waits = winning_tiles(seat);
+    if (!contains_tile(waits, tile)) return false;
+
+    bool permanent = false;
+    for (int discarded : players[seat].river) {
+        if (contains_tile(waits, discarded)) {
+            permanent = true;
+            break;
+        }
+    }
+    bool missed_wait = intersects_waits(same_turn_furiten[seat], waits);
+    bool same_turn = config.enforce_same_turn_furiten && missed_wait;
+    bool riichi_furiten = config.enforce_riichi_furiten && players[seat].riichi_declared && missed_wait;
     return permanent || same_turn || riichi_furiten;
 }
 
@@ -180,7 +328,7 @@ StepResult RiichiEngine::finalize_abortive_draw(const std::string& reason) {
 std::pair<std::vector<int>, std::vector<int>> RiichiEngine::calc_noten_bappu_delta() {
     std::vector<int> tenpai, noten;
     for (int i = 0; i < 4; ++i) {
-        if (is_tenpai(players[i].hand34)) tenpai.push_back(i);
+        if (!winning_tiles(i).empty()) tenpai.push_back(i);
         else noten.push_back(i);
     }
     std::vector<int> delta(4, 0);
@@ -242,7 +390,9 @@ int RiichiEngine::draw() {
     int t = live_wall.back();
     live_wall.pop_back();
     hand34_add(players[cur].hand34, t);
-    same_turn_furiten[cur].clear();
+    if (!players[cur].riichi_declared) {
+        same_turn_furiten[cur].clear();
+    }
     last_draw = t;
     log_event({"DRAW", {{"player", cur}, {"tile", t}, {"live_wall", static_cast<int>(live_wall.size())}}});
     phase = Phase::DISCARD;
@@ -352,9 +502,15 @@ std::vector<int> RiichiEngine::collect_chankan_ronners(int kan_actor, int tile) 
     std::vector<int> winners;
     for (int offset = 1; offset <= 3; ++offset) {
         int p = (kan_actor + offset) % 4;
-        auto tmp = copy_hand(players[p].hand34);
-        tmp[tile] += 1;
-        if (is_agari(tmp) && !is_furiten(p, tile)) {
+        if (can_win_with_tile(p, tile) && !is_furiten(p, tile)) {
+            auto tmp = copy_hand(players[p].hand34);
+            tmp[tile] += 1;
+            auto hand = winning_hand_for_score(p, tmp);
+            if (!has_counting_yaku(p, "ron", hand, tile,
+                                   players[p].riichi_declared, ippatsu_active[p],
+                                   false, true, false, false)) {
+                continue;
+            }
             winners.push_back(p);
         }
     }
@@ -367,15 +523,62 @@ std::vector<int> RiichiEngine::collect_chankan_ronners(int kan_actor, int tile) 
 
 std::map<std::string, InfoValue> RiichiEngine::yaku_info_for_win(
     int winner, const std::string& win_type,
-    const Hand34& winning_hand34, int win_tile) {
+    const Hand34& winning_hand34, int win_tile,
+    bool riichi, bool ippatsu, bool rinshan,
+    bool chankan, bool haitei, bool houtei) {
 
-    auto [yakus, total_han] = analyze_yaku(
-        winning_hand34, win_type, seat_winds[winner], round_wind, is_closed_hand(winner));
+    auto [yakus, total_han] = analyze_yaku_with_melds(
+        players[winner].melds, winning_hand34, win_type,
+        seat_winds[winner], round_wind, is_closed_hand(winner), win_tile);
 
-    int dora_han = count_dora(winning_hand34, dora_indicators);
-    if (dora_han > 0) {
-        yakus.emplace_back("宝牌", dora_han);
-        total_han += dora_han;
+    int yakuman_count = yakuman_count_from_yakus(yakus);
+    if (yakuman_count == 0) {
+        if (riichi && is_closed_hand(winner)) {
+            yakus.emplace_back("立直", 1);
+            total_han += 1;
+        }
+        if (riichi && ippatsu) {
+            yakus.emplace_back("一发", 1);
+            total_han += 1;
+        }
+        if (rinshan) {
+            yakus.emplace_back("岭上开花", 1);
+            total_han += 1;
+        }
+        if (chankan) {
+            yakus.emplace_back("抢杠", 1);
+            total_han += 1;
+        }
+        if (haitei) {
+            yakus.emplace_back("海底摸月", 1);
+            total_han += 1;
+        }
+        if (houtei) {
+            yakus.emplace_back("河底捞鱼", 1);
+            total_han += 1;
+        }
+
+        int dora_han = count_dora(winning_hand34, dora_indicators);
+        if (dora_han > 0) {
+            yakus.emplace_back("宝牌", dora_han);
+            total_han += dora_han;
+        }
+
+        if (riichi && config.ura_dora_enabled && config.use_dead_wall) {
+            static const int ura_positions[] = {4, 6, 8, 10};
+            std::vector<int> ura_indicators;
+            for (int i = 0; i < static_cast<int>(dora_indicators.size()) && i < 4; ++i) {
+                int pos_from_end = ura_positions[i];
+                if (pos_from_end <= static_cast<int>(dead_wall.size())) {
+                    ura_indicators.push_back(dead_wall[dead_wall.size() - pos_from_end]);
+                }
+            }
+            int ura_han = count_dora(winning_hand34, ura_indicators);
+            if (ura_han > 0) {
+                yakus.emplace_back("里宝牌", ura_han);
+                total_han += ura_han;
+            }
+        }
     }
 
     int fu = calculate_fu(
@@ -386,6 +589,7 @@ std::map<std::string, InfoValue> RiichiEngine::yaku_info_for_win(
     result["yaku"] = yakus;
     result["han"] = total_han;
     result["fu"] = fu;
+    result["yakuman_count"] = yakuman_count;
     result["seat_wind"] = seat_winds[winner];
     result["round_wind"] = round_wind;
     return result;
@@ -402,24 +606,35 @@ std::vector<Action> RiichiEngine::legal_actions() {
 
     if (phase == Phase::DISCARD) {
         // Tsumo
-        if (is_agari(players[cur].hand34)) {
-            actions.push_back({ActionType::TSUMO});
+        if (concealed_complete_with_meld_count(players[cur].hand34, exposed_meld_count(players[cur].melds))) {
+            bool is_rinshan = !event_log_.empty() && event_log_.back().type == "DRAW_RINSHAN";
+            bool is_haitei = live_wall.empty();
+            auto hand = winning_hand_for_score(cur, players[cur].hand34);
+            if (has_counting_yaku(cur, "tsumo", hand, last_draw,
+                                  players[cur].riichi_declared, ippatsu_active[cur],
+                                  is_rinshan, false, is_haitei, false)) {
+                actions.push_back({ActionType::TSUMO});
+            }
         }
 
         // Kyuushu kyuuhai
         if (config.enable_kyuushu_kyuuhai &&
             players[cur].river.empty() &&
-            std::all_of(players.begin(), players.end(),
-                        [](const PlayerState& p) { return p.river.empty(); }) &&
             !open_call_happened &&
             count_yaochu_types(players[cur].hand34) >= 9) {
             actions.push_back({ActionType::ABORTIVE_DRAW});
         }
 
         // Discards
-        for (int t = 0; t < 34; ++t) {
-            if (players[cur].hand34[t] > 0) {
-                actions.push_back({ActionType::DISCARD, t});
+        if (players[cur].riichi_declared) {
+            if (last_draw >= 0 && last_draw < 34 && players[cur].hand34[last_draw] > 0) {
+                actions.push_back({ActionType::DISCARD, last_draw});
+            }
+        } else {
+            for (int t = 0; t < 34; ++t) {
+                if (players[cur].hand34[t] > 0) {
+                    actions.push_back({ActionType::DISCARD, t});
+                }
             }
         }
 
@@ -432,18 +647,20 @@ std::vector<Action> RiichiEngine::legal_actions() {
         if (config.enable_kan && kan_count < config.max_kan_per_hand) {
             const auto& hand = players[cur].hand34;
             for (int t = 0; t < 34; ++t) {
-                if (hand[t] == 4) {
+                if (hand[t] == 4 && (!players[cur].riichi_declared || riichi_ankan_keeps_waits(t))) {
                     Action a{ActionType::KAN, t};
                     a.info.kan_type = "ANKAN";
                     actions.push_back(a);
                 }
             }
-            for (int t = 0; t < 34; ++t) {
-                if (hand[t] <= 0) continue;
-                if (find_pon_meld_idx(cur, t) >= 0) {
-                    Action a{ActionType::KAN, t};
-                    a.info.kan_type = "KAKAN";
-                    actions.push_back(a);
+            if (!players[cur].riichi_declared) {
+                for (int t = 0; t < 34; ++t) {
+                    if (hand[t] <= 0) continue;
+                    if (find_pon_meld_idx(cur, t) >= 0) {
+                        Action a{ActionType::KAN, t};
+                        a.info.kan_type = "KAKAN";
+                        actions.push_back(a);
+                    }
                 }
             }
         }
@@ -462,12 +679,18 @@ std::vector<Action> RiichiEngine::legal_actions() {
 
         // RON
         {
-            auto tmp = copy_hand(players[actor].hand34);
-            tmp[tile] += 1;
-            if (is_agari(tmp) && !is_furiten(actor, tile)) {
-                Action a{ActionType::RON, tile};
-                a.info.from = discarder;
-                actions.push_back(a);
+            if (can_win_with_tile(actor, tile) && !is_furiten(actor, tile)) {
+                auto tmp = copy_hand(players[actor].hand34);
+                tmp[tile] += 1;
+                auto hand = winning_hand_for_score(actor, tmp);
+                bool is_houtei = live_wall.empty();
+                if (has_counting_yaku(actor, "ron", hand, tile,
+                                      players[actor].riichi_declared, ippatsu_active[actor],
+                                      false, false, false, is_houtei)) {
+                    Action a{ActionType::RON, tile};
+                    a.info.from = discarder;
+                    actions.push_back(a);
+                }
             }
         }
 
@@ -524,40 +747,44 @@ StepResult RiichiEngine::apply_action(const Action& action) {
 
     if (phase == Phase::DISCARD) {
         if (action.type == ActionType::TSUMO) {
-            if (!is_agari(players[cur].hand34)) {
+            if (!concealed_complete_with_meld_count(players[cur].hand34, exposed_meld_count(players[cur].melds))) {
                 throw std::invalid_argument("当前手牌不满足和牌，不能自摸");
+            }
+            bool is_rinshan = !event_log_.empty() && event_log_.back().type == "DRAW_RINSHAN";
+            bool is_haitei = live_wall.empty();
+            auto hand = winning_hand_for_score(cur, players[cur].hand34);
+            auto yaku_info = yaku_info_for_win(cur, "tsumo", hand, last_draw,
+                                               players[cur].riichi_declared, ippatsu_active[cur],
+                                               is_rinshan, false, is_haitei, false);
+            auto yakus = std::get<std::vector<std::pair<std::string,int>>>(yaku_info["yaku"]);
+            if (!has_counting_yaku_in_list(yakus)) {
+                throw std::invalid_argument("当前和牌没有役，不能自摸");
             }
             done = true;
             phase = Phase::END;
-            auto hand = copy_hand(players[cur].hand34);
-            auto yaku_info = yaku_info_for_win(cur, "tsumo", hand, last_draw);
 
             int han_val = std::get<int>(yaku_info["han"]);
             int fu_val = std::get<int>(yaku_info["fu"]);
+            int yakuman_count = std::get<int>(yaku_info["yakuman_count"]);
             auto pr = resolve_tsumo(cur, han_val, fu_val, dealer, honba, riichi_sticks,
-                                    config.kazoe_yakuman, config.kiriage_mangan);
+                                    config.kazoe_yakuman, config.kiriage_mangan, yakuman_count);
             for (int i = 0; i < 4; ++i) scores[i] += pr.score_delta[i];
 
             log_event({"END", {{"reason", std::string("TSUMO")}, {"winner", cur}}});
 
-            auto yakus = std::get<std::vector<std::pair<std::string,int>>>(yaku_info["yaku"]);
             std::map<std::string, bool> flags;
             flags["riichi"] = players[cur].riichi_declared;
             flags["ippatsu"] = ippatsu_active[cur];
-            flags["haitei"] = live_wall.empty();
+            flags["haitei"] = is_haitei;
             flags["houtei"] = false;
             flags["chankan"] = false;
-            bool is_rinshan = false;
-            if (!event_log_.empty()) {
-                auto& last = event_log_.back();
-                if (last.type == "DRAW_RINSHAN") is_rinshan = true;
-            }
             flags["rinshan"] = is_rinshan;
 
             std::map<std::string, InfoValue> info;
             info["turn"] = turn;
             info["win_type"] = std::string("tsumo");
             info["winner"] = cur;
+            info["yakuman_count"] = yakuman_count;
 
             return StepResult{true, "tsumo", cur, {cur}, -1,
                               pr.score_delta, han_val, fu_val, yakus, pr.payments, flags, info};
@@ -571,6 +798,9 @@ StepResult RiichiEngine::apply_action(const Action& action) {
             std::string kt = action.info.kan_type.value_or("ANKAN");
 
             if (kt == "KAKAN") {
+                if (players[cur].riichi_declared) {
+                    throw std::invalid_argument("立直后不能加杠");
+                }
                 int meld_idx = find_pon_meld_idx(cur, t);
                 if (meld_idx < 0 || players[cur].hand34[t] <= 0) {
                     throw std::invalid_argument("加杠需要已有碰子且手里有第四张");
@@ -592,6 +822,9 @@ StepResult RiichiEngine::apply_action(const Action& action) {
             }
 
             // ANKAN
+            if (!riichi_ankan_keeps_waits(t)) {
+                throw std::invalid_argument("立直后暗杠必须保持听牌不变且只能杠摸牌");
+            }
             if (players[cur].hand34[t] != 4) {
                 throw std::invalid_argument("暗杠需要手里恰好四张同牌");
             }
@@ -695,7 +928,9 @@ StepResult RiichiEngine::apply_action(const Action& action) {
         } else if (action.type == ActionType::PASS) {
             pending_discard->passes.insert(actor);
             if (had_ron_option) {
-                same_turn_furiten[actor].insert(pending_discard->tile);
+                for (int wait : winning_tiles(actor)) {
+                    same_turn_furiten[actor].insert(wait);
+                }
             }
             log_event({"PASS", {{"player", actor}}});
         } else {
@@ -807,24 +1042,31 @@ StepResult RiichiEngine::finalize_ron(const std::vector<int>& winners,
     std::vector<int> aggregate_delta(4, 0);
     std::map<std::string, int> payments;
     int han = 0, fu = 0;
+    int first_yakuman_count = 0;
     std::vector<std::pair<std::string, int>> yaku_list;
+    bool is_houtei = !chankan && live_wall.empty();
 
     for (int w : winners) {
         auto tmp = copy_hand(players[w].hand34);
         tmp[tile] += 1;
-        auto y = yaku_info_for_win(w, "ron", tmp, tile);
+        auto hand = winning_hand_for_score(w, tmp);
+        auto y = yaku_info_for_win(w, "ron", hand, tile,
+                                   players[w].riichi_declared, ippatsu_active[w],
+                                   false, chankan, false, is_houtei);
         int w_han = std::get<int>(y["han"]);
         int w_fu = std::get<int>(y["fu"]);
+        int w_yakuman_count = std::get<int>(y["yakuman_count"]);
         auto w_yakus = std::get<std::vector<std::pair<std::string,int>>>(y["yaku"]);
 
         auto pr = resolve_ron(w, discarder, w_han, w_fu, dealer, honba,
                               w == winners[0] ? riichi_sticks : 0,
-                              config.kazoe_yakuman, config.kiriage_mangan);
+                              config.kazoe_yakuman, config.kiriage_mangan, w_yakuman_count);
         for (int i = 0; i < 4; ++i) aggregate_delta[i] += pr.score_delta[i];
         if (w == winners[0]) {
             payments = pr.payments;
             han = w_han;
             fu = w_fu;
+            first_yakuman_count = w_yakuman_count;
             yaku_list = w_yakus;
         }
     }
@@ -838,13 +1080,14 @@ StepResult RiichiEngine::finalize_ron(const std::vector<int>& winners,
     flags["ippatsu"] = ippatsu_active[winners[0]];
     flags["rinshan"] = false;
     flags["haitei"] = false;
-    flags["houtei"] = live_wall.empty();
+    flags["houtei"] = is_houtei;
     flags["chankan"] = chankan;
 
     std::map<std::string, InfoValue> info;
     info["turn"] = turn;
     info["win_type"] = std::string("ron");
     info["chankan"] = chankan;
+    info["yakuman_count"] = first_yakuman_count;
 
     return StepResult{true, "ron", winners[0], winners, discarder,
                       aggregate_delta, han, fu, yaku_list, payments, flags, info};

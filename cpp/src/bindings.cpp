@@ -309,8 +309,8 @@ PYBIND11_MODULE(_mahjong_cpp, m) {
         .def_property("melds",
                       [](const PlayerState& p) -> py::list { return melds_to_py(p.melds); },
                       [](PlayerState& p, py::list v) { p.melds = py_to_melds(v); })
-        .def_readonly("riichi_declared", &PlayerState::riichi_declared)
-        .def_readonly("riichi_turn", &PlayerState::riichi_turn);
+        .def_readwrite("riichi_declared", &PlayerState::riichi_declared)
+        .def_readwrite("riichi_turn", &PlayerState::riichi_turn);
 
     // StepResult
     py::class_<StepResult>(m, "StepResult")
@@ -413,16 +413,23 @@ PYBIND11_MODULE(_mahjong_cpp, m) {
         }, py::arg("max_steps") = 20000, py::arg("verbose") = false)
         .def("_should_abort_suufon_renda", &RiichiEngine::should_abort_suufon_renda)
         .def("_yaku_info_for_win", [](RiichiEngine& e, int winner, const std::string& win_type,
-                                       const std::vector<int>& hand34_vec, py::object win_tile_obj) -> py::dict {
+                                       const std::vector<int>& hand34_vec, py::object win_tile_obj,
+                                       bool riichi, bool ippatsu, bool rinshan,
+                                       bool chankan, bool haitei, bool houtei) -> py::dict {
             int win_tile = win_tile_obj.is_none() ? -1 : py::cast<int>(win_tile_obj);
             Hand34 h34 = vec_to_hand34(hand34_vec);
-            auto info = e.yaku_info_for_win(winner, win_type, h34, win_tile);
+            auto info = e.yaku_info_for_win(winner, win_type, h34, win_tile,
+                                            riichi, ippatsu, rinshan, chankan, haitei, houtei);
             py::dict d;
             for (const auto& [key, val] : info) {
                 d[key.c_str()] = info_value_to_py(val);
             }
             return d;
-        })
+        }, py::arg("winner"), py::arg("win_type"), py::arg("hand34"),
+           py::arg("win_tile"), py::arg("riichi") = false,
+           py::arg("ippatsu") = false, py::arg("rinshan") = false,
+           py::arg("chankan") = false, py::arg("haitei") = false,
+           py::arg("houtei") = false)
         .def_readonly("config", &RiichiEngine::config)
         .def_readonly("players", &RiichiEngine::players)
         .def_readwrite("live_wall", &RiichiEngine::live_wall)
@@ -461,18 +468,20 @@ PYBIND11_MODULE(_mahjong_cpp, m) {
     }, py::arg("hand34"), py::arg("dora_indicators"));
     m.def("point_level", &point_level,
           py::arg("han"), py::arg("fu"), py::arg("kazoe_yakuman") = true,
-          py::arg("kiriage_mangan") = false);
+          py::arg("kiriage_mangan") = false, py::arg("yakuman_count") = 0);
     m.def("base_points", &base_points,
           py::arg("han"), py::arg("fu"), py::arg("kazoe_yakuman") = true,
-          py::arg("kiriage_mangan") = false);
+          py::arg("kiriage_mangan") = false, py::arg("yakuman_count") = 0);
     m.def("resolve_ron", &resolve_ron,
           py::arg("winner"), py::arg("loser"), py::arg("han"), py::arg("fu"),
           py::arg("dealer"), py::arg("honba") = 0, py::arg("riichi_sticks") = 0,
-          py::arg("kazoe_yakuman") = true, py::arg("kiriage_mangan") = false);
+          py::arg("kazoe_yakuman") = true, py::arg("kiriage_mangan") = false,
+          py::arg("yakuman_count") = 0);
     m.def("resolve_tsumo", &resolve_tsumo,
           py::arg("winner"), py::arg("han"), py::arg("fu"), py::arg("dealer"),
           py::arg("honba") = 0, py::arg("riichi_sticks") = 0,
-          py::arg("kazoe_yakuman") = true, py::arg("kiriage_mangan") = false);
+          py::arg("kazoe_yakuman") = true, py::arg("kiriage_mangan") = false,
+          py::arg("yakuman_count") = 0);
     m.def("is_kokushi", [](const std::vector<int>& v) -> bool {
         return is_kokushi(vec_to_hand34(v));
     });
@@ -492,14 +501,14 @@ PYBIND11_MODULE(_mahjong_cpp, m) {
         return count_yaochu_types(vec_to_hand34(v));
     });
     m.def("analyze_yaku", [](const std::vector<int>& hand34_vec, const std::string& win_type,
-                              int seat_wind, int round_wind, bool is_closed) -> py::tuple {
+                              int seat_wind, int round_wind, bool is_closed, int win_tile) -> py::tuple {
         Hand34 h34 = vec_to_hand34(hand34_vec);
-        auto [yakus, total_han] = analyze_yaku(h34, win_type, seat_wind, round_wind, is_closed);
+        auto [yakus, total_han] = analyze_yaku(h34, win_type, seat_wind, round_wind, is_closed, win_tile);
         py::list yaku_list;
         for (const auto& [name, han] : yakus) {
             yaku_list.append(py::make_tuple(name, han));
         }
         return py::make_tuple(yaku_list, total_han);
     }, py::arg("hand34"), py::arg("win_type"), py::arg("seat_wind"),
-       py::arg("round_wind"), py::arg("is_closed") = true);
+       py::arg("round_wind"), py::arg("is_closed") = true, py::arg("win_tile") = -1);
 }

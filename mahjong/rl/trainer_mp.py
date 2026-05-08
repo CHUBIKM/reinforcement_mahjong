@@ -28,6 +28,7 @@ from mahjong.rl.trainer import (
     _reward_from_step,
     _sample_action,
     collect_parallel_batch,
+    format_train_status,
     load_train_config,
     ppo_update,
     require_torch,
@@ -328,6 +329,17 @@ def collect_parallel_batch_mp(
     )
 
 
+def _is_mp_collection_error(exc: RuntimeError) -> bool:
+    msg = str(exc)
+    mp_error_markers = (
+        "timed out waiting for multiprocessing observations",
+        "timed out waiting for multiprocessing step results",
+        "unexpected worker response",
+        "unknown worker message",
+    )
+    return any(marker in msg for marker in mp_error_markers)
+
+
 def train_mp(config: Optional[TrainConfig] = None, use_multiprocessing: bool = True) -> ActorCritic:
     require_torch()
     cfg = config or TrainConfig()
@@ -338,6 +350,7 @@ def train_mp(config: Optional[TrainConfig] = None, use_multiprocessing: bool = T
 
     model = ActorCritic(hidden=cfg.hidden).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+    train_started_at = time.perf_counter()
 
     engines = []
     collect_fn = collect_parallel_batch_mp
@@ -348,10 +361,11 @@ def train_mp(config: Optional[TrainConfig] = None, use_multiprocessing: bool = T
         collect_fn = collect_parallel_batch
 
     for upd in range(1, cfg.num_updates + 1):
+        update_started_at = time.perf_counter()
         try:
             batch, st = collect_fn(engines, model, cfg, device)
         except RuntimeError as exc:
-            if not use_multiprocessing:
+            if not use_multiprocessing or not _is_mp_collection_error(exc):
                 raise
             print(f"[MP] collection failed ({exc}); falling back to sequential collection")
             engines = [RiichiEngine(seed=cfg.seed + i, config=cfg.rules) for i in range(cfg.num_envs)]
@@ -360,22 +374,25 @@ def train_mp(config: Optional[TrainConfig] = None, use_multiprocessing: bool = T
             collect_fn = collect_parallel_batch
             batch, st = collect_fn(engines, model, cfg, device)
 
+        optimize_started_at = time.perf_counter()
         met = ppo_update(model, optimizer, batch, cfg)
+        update_seconds = time.perf_counter() - optimize_started_at
+        total_update_seconds = time.perf_counter() - update_started_at
+        st["update_seconds"] = update_seconds
 
-        if cfg.log_every > 0 and (upd == 1 or upd % cfg.log_every == 0):
-            d = st["done"]
-            denom = max(1, d["tsumo"] + d["ron"] + d["ryuukyoku"])
-            mp_tag = "[MP]" if st.get("multiprocessing") else "[SEQ]"
-            worker_text = f" workers={st.get('workers', 1)}" if st.get("multiprocessing") else ""
-            speed_text = ""
-            if "collect_seconds" in st:
-                speed_text = f" collect={st['collect_seconds']:.2f}s collect_sps={st['steps_per_second']:.0f}"
+        if cfg.log_every > 0 and (upd == 1 or upd % cfg.log_every == 0 or upd == cfg.num_updates):
             print(
-                f"{mp_tag} [UPD {upd}] device={device}{worker_text} transitions={batch.size} steps={st['steps']} "
-                f"autoPASS={st['auto_pass']} "
-                f"rate(ron/tsumo/ryu)={d['ron']/denom:.2%}/{d['tsumo']/denom:.2%}/{d['ryuukyoku']/denom:.2%} "
-                f"loss={met['loss']:.4f} pl={met['pl']:.4f} vl={met['vl']:.4f} ent={met['ent']:.4f}"
-                f"{speed_text}"
+                format_train_status(
+                    tag="[MP]" if st.get("multiprocessing") else "[SEQ]",
+                    update=upd,
+                    cfg=cfg,
+                    device=device,
+                    batch=batch,
+                    stats=st,
+                    metrics=met,
+                    elapsed_total=time.perf_counter() - train_started_at,
+                    update_seconds=total_update_seconds,
+                )
             )
 
     return model

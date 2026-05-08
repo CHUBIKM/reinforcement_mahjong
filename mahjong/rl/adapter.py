@@ -129,11 +129,14 @@ def materialize_action(engine: RiichiEngine, action: Action) -> Action:
 def _phase_one_hot(phase: Phase) -> np.ndarray:
     # DRAW/DISCARD/RESPONSE/END
     v = np.zeros((4,), dtype=np.float32)
-    if str(phase) == str(Phase.DRAW):
+    phase_name = getattr(phase, "name", str(phase))
+    if "." in phase_name:
+        phase_name = phase_name.rsplit(".", 1)[-1]
+    if phase_name == "DRAW":
         v[0] = 1.0
-    elif str(phase) == str(Phase.DISCARD):
+    elif phase_name == "DISCARD":
         v[1] = 1.0
-    elif str(phase) == str(Phase.RESPONSE):
+    elif phase_name == "RESPONSE":
         v[2] = 1.0
     else:
         v[3] = 1.0

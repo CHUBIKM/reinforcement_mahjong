@@ -192,12 +192,13 @@ python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 Run both commands with the same Python interpreter to avoid loading a C++
-extension compiled for a different CPython version.
+extension compiled for a different CPython version. If import fails, the Python
+wrapper reports the active interpreter, expected extension suffix, and any
+incompatible `_mahjong_cpp*.so` files it found in the project root.
 
 **Test coverage:**
 - `test_engine.py`: Core engine logic, phase transitions, legal actions
 - `test_scoring.py`: Han/fu calculation, point resolution
-- `test_yaku.py`: Yaku detection across various hand patterns
 - `test_rl_adapter.py`: RL integration, observation encoding, action masking
 
 ## API Usage
@@ -232,8 +233,9 @@ print(f"Final scores: {eng.scores}")
 
 ```python
 import numpy as np
-from mahjong.engine import RiichiEngine
-from mahjong.rl.adapter import obs_encoder, mask_builder, action_from_index
+from mahjong.engine import Phase, RiichiEngine
+from mahjong.rules import RuleProfile
+from mahjong.rl.adapter import id_to_action, mask_builder, materialize_action
 from _mahjong_cpp import OBS_DIM
 
 config = RuleProfile()
@@ -243,42 +245,39 @@ eng.reset(dealer=0)
 # Disable logging for training performance
 eng.logging_enabled = False
 
-seat = 0  # Your agent's seat
-obs = np.zeros(OBS_DIM, dtype=np.float32)
-
 while not eng.done:
     if eng.phase == Phase.DRAW:
-        tile = eng.draw()
+        eng.draw()
         continue
 
     # Zero-copy observation
-    eng.get_obs_array(seat, obs)
+    seat = eng.cur
+    obs = eng.get_obs_array(seat)
 
     # Build legal action mask
-    legal_actions = eng.legal_actions()
-    mask = mask_builder(obs, legal_actions, seat, eng.phase, eng.pending_discard)
+    mask = mask_builder(eng)
 
     # Select action (replace with your policy)
     valid_indices = np.where(mask)[0]
     action_idx = np.random.choice(valid_indices)
-    action = action_from_index(action_idx, obs, legal_actions, eng.phase, eng.pending_discard)
+    action = materialize_action(eng, id_to_action(int(action_idx)))
 
     result = eng.apply_action(action)
 ```
 
 ### Observation Encoding
 
-**OBS_DIM = 126** (34 + 34 + 34 + 4 + 4 + 8 + 4 + 4 + 4)
+**OBS_DIM = 130** (34 + 34 + 34 + 4 + 4 + 8 + 4 + 4 + 4)
 
 | Offset | Size | Description |
 |--------|------|-------------|
 | 0-33   | 34   | hand34 (tile counts) |
-| 34-67  | 34   | river_history (last 2 discards per player) |
-| 68-101 | 34   | meld_history (sequence/triplet/kan indicators) |
+| 34-67  | 34   | river tile histogram |
+| 68-101 | 34   | meld tile histogram |
 | 102-105 | 4   | phase_onehot (DRAW/DISCARD/RESPONSE/END) |
 | 106-109 | 4   | seat_onehot |
-| 110-117 | 8   | scalars (turn, live_wall_len, dead_wall_len, riichi_sticks, honba, dora_count, ippatsu[2]) |
-| 118-121 | 4   | dora_pad (dora indicator onehot) |
+| 110-117 | 8   | scalars (cur, turn, live_wall_len, dead_wall_len, last_discard, last_discarder, riichi_sticks, honba) |
+| 118-121 | 4   | dora indicator ids padded with -1 |
 | 122-125 | 4   | scores (normalized) |
 | 126-129 | 4   | riichi_declared (per player) |
 
@@ -299,11 +298,12 @@ while not eng.done:
 | `NOTEN_BAPPU` | 流局罚点 |
 
 **Yaku supported:**
-- 1 han: 门前清自摸和, 断幺九, 役牌, 一杯口 (closed only)
-- 2 han: 对对和, 三暗刻, 混老头, 小三元, 七对子, 三色同顺 (closed), 一气通贯 (closed), 混全带幺九
-- 3 han: 纯全带幺九 (closed), 混一色
-- 6 han: 清一色
-- 13 han: 国士无双
+- 1 han: 立直, 一发, 门前清自摸和, 平和, 断幺九, 役牌, 一杯口, 岭上开花, 抢杠, 海底摸月, 河底捞鱼, 三色同顺(副露), 一气通贯(副露), 混全带幺九(副露)
+- 2 han: 七对子, 对对和, 三暗刻, 三色同刻, 三杠子, 三色同顺(门清), 一气通贯(门清), 混全带幺九(门清), 纯全带幺九(副露), 混一色(副露), 混老头, 小三元
+- 3 han: 二杯口, 纯全带幺九(门清), 混一色(门清)
+- 5/6 han: 清一色(副露/门清)
+- Yakuman: 国士无双, 大三元, 四暗刻, 字一色, 清老头, 绿一色, 小四喜, 大四喜, 四杠子, 九莲宝灯
+- Bonus han: 宝牌; 里宝牌 is counted for riichi wins when enabled
 
 ## Performance Notes
 

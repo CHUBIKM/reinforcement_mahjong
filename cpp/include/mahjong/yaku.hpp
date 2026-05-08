@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "mahjong/hand_analysis.hpp"
+#include "mahjong/types.hpp"
 
 namespace mahjong {
 
@@ -15,7 +16,18 @@ std::pair<std::vector<std::pair<std::string, int>>, int> analyze_yaku(
     const std::string& win_type,
     int seat_wind,
     int round_wind,
-    bool is_closed = true
+    bool is_closed = true,
+    int win_tile = -1
+);
+
+std::pair<std::vector<std::pair<std::string, int>>, int> analyze_yaku_with_melds(
+    const std::vector<Meld>& fixed_melds,
+    const Hand34& hand34,
+    const std::string& win_type,
+    int seat_wind,
+    int round_wind,
+    bool is_closed = true,
+    int win_tile = -1
 );
 
 // Yaku helper predicates

@@ -12,15 +12,33 @@ _module_path = next(
     None,
 )
 
-if _module_path is not None:
-    spec = importlib.util.spec_from_file_location("_mahjong_cpp", str(_module_path))
-    if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load _mahjong_cpp extension from {_module_path}")
-    _mahjong_cpp = importlib.util.module_from_spec(spec)
-    sys.modules["_mahjong_cpp"] = _mahjong_cpp
-    spec.loader.exec_module(_mahjong_cpp)
-else:
-    import _mahjong_cpp
+def _extension_import_error(exc: BaseException) -> ImportError:
+    candidates = sorted(p.name for p in _project_root.glob("_mahjong_cpp*.so"))
+    suffixes = ", ".join(EXTENSION_SUFFIXES)
+    found = ", ".join(candidates) if candidates else "none"
+    err = ImportError(
+        "Could not import the _mahjong_cpp extension for this Python interpreter. "
+        f"Python executable: {sys.executable}; version: {sys.version.split()[0]}; "
+        f"expected extension suffixes: {suffixes}; extension files in project root: {found}. "
+        "Build/install with the same interpreter used for tests and training, e.g. "
+        "`python -m pip install -e . --no-deps` after build dependencies are installed."
+    )
+    err.__cause__ = exc
+    return err
+
+
+try:
+    if _module_path is not None:
+        spec = importlib.util.spec_from_file_location("_mahjong_cpp", str(_module_path))
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot load _mahjong_cpp extension from {_module_path}")
+        _mahjong_cpp = importlib.util.module_from_spec(spec)
+        sys.modules["_mahjong_cpp"] = _mahjong_cpp
+        spec.loader.exec_module(_mahjong_cpp)
+    else:
+        import _mahjong_cpp
+except (ImportError, ModuleNotFoundError) as exc:
+    raise _extension_import_error(exc)
 
 from _mahjong_cpp import (  # type: ignore
     Action,
@@ -172,8 +190,32 @@ class RiichiEngine:
     def _should_abort_suufon_renda(self) -> bool:
         return bool(self._impl._should_abort_suufon_renda())
 
-    def _yaku_info_for_win(self, winner: int, win_type: str, winning_hand34: list[int], win_tile: int | None):
-        return self._impl._yaku_info_for_win(winner, win_type, winning_hand34, win_tile)
+    def _yaku_info_for_win(
+        self,
+        winner: int,
+        win_type: str,
+        winning_hand34: list[int],
+        win_tile: int | None,
+        *,
+        riichi: bool = False,
+        ippatsu: bool = False,
+        rinshan: bool = False,
+        chankan: bool = False,
+        haitei: bool = False,
+        houtei: bool = False,
+    ):
+        return self._impl._yaku_info_for_win(
+            winner,
+            win_type,
+            winning_hand34,
+            win_tile,
+            riichi=riichi,
+            ippatsu=ippatsu,
+            rinshan=rinshan,
+            chankan=chankan,
+            haitei=haitei,
+            houtei=houtei,
+        )
 
 
 __all__ = [

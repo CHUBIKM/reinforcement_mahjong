@@ -35,8 +35,9 @@ int count_dora(const Hand34& hand34, const std::vector<int>& dora_indicators) {
     return total;
 }
 
-std::string point_level(int han, int fu, bool kazoe_yakuman, bool kiriage_mangan) {
-    if (han >= 13) return "yakuman";
+std::string point_level(int han, int fu, bool kazoe_yakuman, bool kiriage_mangan, int yakuman_count) {
+    if (yakuman_count > 0) return "yakuman";
+    if (han >= 13 && kazoe_yakuman) return "yakuman";
     if (han >= 11) return "sanbaiman";
     if (han >= 8)  return "baiman";
     if (han >= 6)  return "haneman";
@@ -49,9 +50,9 @@ std::string point_level(int han, int fu, bool kazoe_yakuman, bool kiriage_mangan
     return "regular";
 }
 
-int base_points(int han, int fu, bool kazoe_yakuman, bool kiriage_mangan) {
-    auto level = point_level(han, fu, kazoe_yakuman, kiriage_mangan);
-    if (level == "yakuman")   return 8000;
+int base_points(int han, int fu, bool kazoe_yakuman, bool kiriage_mangan, int yakuman_count) {
+    auto level = point_level(han, fu, kazoe_yakuman, kiriage_mangan, yakuman_count);
+    if (level == "yakuman")   return 8000 * std::max(1, yakuman_count);
     if (level == "sanbaiman") return 6000;
     if (level == "baiman")    return 4000;
     if (level == "haneman")   return 3000;
@@ -61,8 +62,8 @@ int base_points(int han, int fu, bool kazoe_yakuman, bool kiriage_mangan) {
 
 PointResult resolve_ron(int winner, int loser, int han, int fu, int dealer,
                         int honba, int riichi_sticks,
-                        bool kazoe_yakuman, bool kiriage_mangan) {
-    int base = base_points(han, fu, kazoe_yakuman, kiriage_mangan);
+                        bool kazoe_yakuman, bool kiriage_mangan, int yakuman_count) {
+    int base = base_points(han, fu, kazoe_yakuman, kiriage_mangan, yakuman_count);
     bool is_dealer = (winner == dealer);
     int ron_points = ceil100(base * (is_dealer ? 6 : 4));
     int honba_bonus = honba * 300;
@@ -77,14 +78,14 @@ PointResult resolve_ron(int winner, int loser, int han, int fu, int dealer,
     return PointResult{
         delta,
         {{"ron", ron_points}, {"honba", honba_bonus}, {"riichi_sticks", riichi_sticks * 1000}},
-        point_level(han, fu, kazoe_yakuman, kiriage_mangan)
+        point_level(han, fu, kazoe_yakuman, kiriage_mangan, yakuman_count)
     };
 }
 
 PointResult resolve_tsumo(int winner, int han, int fu, int dealer,
                           int honba, int riichi_sticks,
-                          bool kazoe_yakuman, bool kiriage_mangan) {
-    int base = base_points(han, fu, kazoe_yakuman, kiriage_mangan);
+                          bool kazoe_yakuman, bool kiriage_mangan, int yakuman_count) {
+    int base = base_points(han, fu, kazoe_yakuman, kiriage_mangan, yakuman_count);
     bool is_dealer = (winner == dealer);
 
     std::vector<int> delta(4, 0);
@@ -116,7 +117,7 @@ PointResult resolve_tsumo(int winner, int han, int fu, int dealer,
     return PointResult{
         delta,
         payments,
-        point_level(han, fu, kazoe_yakuman, kiriage_mangan)
+        point_level(han, fu, kazoe_yakuman, kiriage_mangan, yakuman_count)
     };
 }
 
@@ -186,11 +187,14 @@ int calculate_fu(const std::vector<Meld>& open_melds_vec,
     int target_melds = 4 - static_cast<int>(open_shape.size());
     if (target_melds < 0) return 30;
 
-    // Build concealed hand by subtracting open meld tiles
+    // Build concealed hand by subtracting exposed meld structure tiles. Kans
+    // occupy one meld slot, so only three tiles are removed for decomposition.
     auto concealed = copy_hand(hand34);
     for (const auto& m : open_melds_vec) {
-        if (m.type == "ankan") {
-            for (int t : m.tiles) hand34_remove(concealed, t);
+        int n = (m.type == "chi" || m.type == "pon" ||
+                 m.type == "minkan" || m.type == "kakan" || m.type == "ankan") ? 3 : 0;
+        for (int i = 0; i < n && i < static_cast<int>(m.tiles.size()); ++i) {
+            hand34_remove(concealed, m.tiles[i]);
         }
     }
 

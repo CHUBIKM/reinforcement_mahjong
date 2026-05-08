@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
+import time
 
 import numpy as np
 
@@ -177,6 +178,60 @@ class Batch:
     size: int
 
 
+def _format_duration(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    hours, rem = divmod(seconds, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        return f"{hours:d}h{minutes:02d}m{secs:02d}s"
+    if minutes:
+        return f"{minutes:d}m{secs:02d}s"
+    return f"{secs:d}s"
+
+
+def format_train_status(
+    *,
+    tag: str,
+    update: int,
+    cfg: TrainConfig,
+    device: str,
+    batch: Batch,
+    stats: Dict[str, Any],
+    metrics: Dict[str, float],
+    elapsed_total: float,
+    update_seconds: float,
+) -> str:
+    done = stats["done"]
+    terminal = done["tsumo"] + done["ron"] + done["ryuukyoku"]
+    denom = max(1, terminal)
+    progress = update / max(1, cfg.num_updates)
+    eta = (elapsed_total / max(1, update)) * max(0, cfg.num_updates - update)
+    total_sps = batch.size / max(update_seconds, 1e-9)
+
+    worker_text = f" workers={stats.get('workers', 1)}" if stats.get("multiprocessing") else ""
+    timing_parts = []
+    if "collect_seconds" in stats:
+        timing_parts.append(f"collect={stats['collect_seconds']:.2f}s")
+        timing_parts.append(f"collect_sps={stats.get('steps_per_second', 0):.0f}")
+    if "update_seconds" in stats:
+        timing_parts.append(f"update={stats['update_seconds']:.2f}s")
+    timing_parts.append(f"total={update_seconds:.2f}s")
+    timing_parts.append(f"sps={total_sps:.0f}")
+
+    reward_mean = float(np.mean(batch.rew[: batch.size])) if batch.size else 0.0
+    reward_std = float(np.std(batch.rew[: batch.size])) if batch.size else 0.0
+
+    return (
+        f"{tag} [UPD {update}/{cfg.num_updates} {progress:.1%}] "
+        f"device={device}{worker_text} transitions={batch.size} steps={stats['steps']} "
+        f"autoPASS={stats['auto_pass']} terminals={terminal} "
+        f"rate(ron/tsumo/ryu)={done['ron']/denom:.2%}/{done['tsumo']/denom:.2%}/{done['ryuukyoku']/denom:.2%} "
+        f"rew={reward_mean:.4f}+/-{reward_std:.4f} "
+        f"loss={metrics['loss']:.4f} pl={metrics['pl']:.4f} vl={metrics['vl']:.4f} ent={metrics['ent']:.4f} "
+        f"{' '.join(timing_parts)} elapsed={_format_duration(elapsed_total)} eta={_format_duration(eta)}"
+    )
+
+
 def _hand_shape_score(hand34: List[int]) -> float:
     s = 0.0
     for t in range(34):
@@ -239,6 +294,7 @@ def collect_parallel_batch(engines: List[RiichiEngine], model: ActorCritic, cfg:
     env_buf = np.zeros((cfg.target_transitions,), dtype=np.int64)
 
     ptr = 0
+    started_at = time.perf_counter()
     st = {"steps": 0, "auto_pass": 0, "done": {"tsumo": 0, "ron": 0, "ryuukyoku": 0}}
 
     while ptr < cfg.target_transitions:
@@ -299,6 +355,10 @@ def collect_parallel_batch(engines: List[RiichiEngine], model: ActorCritic, cfg:
                 st["done"][step_res.reason] += 1
             if ptr >= cfg.target_transitions:
                 break
+
+    elapsed = max(time.perf_counter() - started_at, 1e-9)
+    st["collect_seconds"] = elapsed
+    st["steps_per_second"] = st["steps"] / elapsed
 
     return (
         Batch(
@@ -403,18 +463,30 @@ def train(config: Optional[TrainConfig] = None) -> ActorCritic:
 
     model = ActorCritic(hidden=cfg.hidden).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+    train_started_at = time.perf_counter()
 
     for upd in range(1, cfg.num_updates + 1):
+        update_started_at = time.perf_counter()
         batch, st = collect_parallel_batch(engines, model, cfg, device)
+        update_started = time.perf_counter()
         met = ppo_update(model, optimizer, batch, cfg)
+        update_seconds = time.perf_counter() - update_started
+        total_update_seconds = time.perf_counter() - update_started_at
+        st["update_seconds"] = update_seconds
 
-        if cfg.log_every > 0 and upd % cfg.log_every == 0:
-            d = st["done"]
-            denom = max(1, d["tsumo"] + d["ron"] + d["ryuukyoku"])
+        if cfg.log_every > 0 and (upd == 1 or upd % cfg.log_every == 0 or upd == cfg.num_updates):
             print(
-                f"[UPD {upd}] device={device} transitions={batch.size} steps={st['steps']} autoPASS={st['auto_pass']} "
-                f"rate(ron/tsumo/ryu)={d['ron']/denom:.2%}/{d['tsumo']/denom:.2%}/{d['ryuukyoku']/denom:.2%} "
-                f"loss={met['loss']:.4f} pl={met['pl']:.4f} vl={met['vl']:.4f} ent={met['ent']:.4f}"
+                format_train_status(
+                    tag="[SEQ]",
+                    update=upd,
+                    cfg=cfg,
+                    device=device,
+                    batch=batch,
+                    stats=st,
+                    metrics=met,
+                    elapsed_total=time.perf_counter() - train_started_at,
+                    update_seconds=total_update_seconds,
+                )
             )
 
     return model

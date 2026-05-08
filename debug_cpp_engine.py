@@ -99,7 +99,7 @@ def step_by_step(seed: int = 0):
                 print(f"  Error: {e}")
         else:
             # Auto-step: apply first legal action
-            if eng.phase == "DRAW":
+            if eng.phase == Phase.DRAW:
                 eng.draw()
             elif actions:
                 result = eng.apply_action(actions[0])
@@ -193,7 +193,7 @@ def test_rl_adapter():
         if eng.done:
             break
 
-        if eng.phase == "DRAW":
+        if eng.phase == Phase.DRAW:
             eng.draw()
 
         actions = eng.legal_actions()
@@ -201,12 +201,12 @@ def test_rl_adapter():
             break
 
         # Build mask
-        mask = mask_builder(eng, 0)
+        mask = mask_builder(eng)
         assert mask.shape == (N_ACTIONS,), f"Mask shape: {mask.shape}"
         assert mask.sum() > 0, "No legal actions in mask"
 
         # Encode observation
-        obs_vec = obs_encoder(eng, 0)
+        obs_vec = obs_encoder(eng.get_obs(seat=eng.cur))
         assert obs_vec.shape == (OBS_DIM,), f"Obs shape: {obs_vec.shape}"
 
         # Apply random legal action

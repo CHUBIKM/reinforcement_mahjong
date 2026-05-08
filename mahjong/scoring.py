@@ -36,8 +36,16 @@ class PointResult:
     level: str = "none"
 
 
-def point_level(han: int, fu: int, kazoe_yakuman: bool = True, kiriage_mangan: bool = False) -> str:
-    if han >= 13:
+def point_level(
+    han: int,
+    fu: int,
+    kazoe_yakuman: bool = True,
+    kiriage_mangan: bool = False,
+    yakuman_count: int = 0,
+) -> str:
+    if yakuman_count > 0:
+        return "yakuman"
+    if han >= 13 and kazoe_yakuman:
         return "yakuman"
     if han >= 11:
         return "sanbaiman"
@@ -66,8 +74,20 @@ def resolve_ron(
     riichi_sticks: int = 0,
     kazoe_yakuman: bool = True,
     kiriage_mangan: bool = False,
+    yakuman_count: int = 0,
 ) -> PointResult:
-    pr = _resolve_ron(winner, loser, han, fu, dealer, honba, riichi_sticks, kazoe_yakuman, kiriage_mangan)
+    pr = _resolve_ron(
+        winner,
+        loser,
+        han,
+        fu,
+        dealer,
+        honba,
+        riichi_sticks,
+        kazoe_yakuman,
+        kiriage_mangan,
+        yakuman_count,
+    )
     return PointResult(
         score_delta=list(pr.score_delta),
         payments=dict(pr.payments),
@@ -84,8 +104,19 @@ def resolve_tsumo(
     riichi_sticks: int = 0,
     kazoe_yakuman: bool = True,
     kiriage_mangan: bool = False,
+    yakuman_count: int = 0,
 ) -> PointResult:
-    pr = _resolve_tsumo(winner, han, fu, dealer, honba, riichi_sticks, kazoe_yakuman, kiriage_mangan)
+    pr = _resolve_tsumo(
+        winner,
+        han,
+        fu,
+        dealer,
+        honba,
+        riichi_sticks,
+        kazoe_yakuman,
+        kiriage_mangan,
+        yakuman_count,
+    )
     return PointResult(
         score_delta=list(pr.score_delta),
         payments=dict(pr.payments),
