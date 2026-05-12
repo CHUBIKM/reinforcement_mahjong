@@ -28,6 +28,7 @@ from mahjong.rl.trainer import (
     _reward_from_step,
     _sample_action,
     collect_parallel_batch,
+    format_train_start,
     format_train_status,
     load_train_config,
     ppo_update,
@@ -360,6 +361,9 @@ def train_mp(config: Optional[TrainConfig] = None, use_multiprocessing: bool = T
             engine.reset(dealer=(cfg.seed + i) % 4)
         collect_fn = collect_parallel_batch
 
+    if cfg.log_every > 0:
+        print(format_train_start(tag="[MP]" if use_multiprocessing else "[SEQ]", cfg=cfg, device=device))
+
     for upd in range(1, cfg.num_updates + 1):
         update_started_at = time.perf_counter()
         try:
@@ -367,7 +371,7 @@ def train_mp(config: Optional[TrainConfig] = None, use_multiprocessing: bool = T
         except RuntimeError as exc:
             if not use_multiprocessing or not _is_mp_collection_error(exc):
                 raise
-            print(f"[MP] collection failed ({exc}); falling back to sequential collection")
+            print(f"[MP] 多进程采样失败：{exc}；已切换为单进程顺序采样继续训练。")
             engines = [RiichiEngine(seed=cfg.seed + i, config=cfg.rules) for i in range(cfg.num_envs)]
             for i, engine in enumerate(engines):
                 engine.reset(dealer=(cfg.seed + i) % 4)
@@ -399,10 +403,10 @@ def train_mp(config: Optional[TrainConfig] = None, use_multiprocessing: bool = T
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Train Mahjong RL policy with optional multiprocessing")
+    parser = argparse.ArgumentParser(description="训练日麻强化学习策略，可选择多进程采样")
     sub = parser.add_subparsers(dest="cmd", required=False)
 
-    train_parser = sub.add_parser("train", help="run PPO training")
+    train_parser = sub.add_parser("train", help="运行 PPO 训练")
     train_parser.add_argument("--config", type=str, default="configs/train.toml")
     train_parser.add_argument("--updates", type=int, default=None)
     train_parser.add_argument("--envs", type=int, default=None)
@@ -414,7 +418,7 @@ def _build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--batch-size", type=int, default=None)
     train_parser.add_argument("--log-every", type=int, default=None)
     train_parser.add_argument("--save", type=str, default="ppo_riichi.pt")
-    train_parser.add_argument("--no-mp", action="store_true", help="use the sequential collector")
+    train_parser.add_argument("--no-mp", action="store_true", help="使用单进程顺序采样")
 
     return parser
 
@@ -423,14 +427,14 @@ def main() -> None:
     args = _build_parser().parse_args()
     cmd = args.cmd or "train"
     if cmd != "train":
-        raise SystemExit(f"unsupported command: {cmd}")
+        raise SystemExit(f"不支持的命令：{cmd}")
 
     cfg = TrainConfig()
     cfg_path = Path(args.config) if args.config else None
     if cfg_path and cfg_path.exists():
         cfg = load_train_config(str(cfg_path), base=cfg)
     elif cfg_path and str(cfg_path) != "configs/train.toml":
-        raise SystemExit(f"Train config not found: {cfg_path}")
+        raise SystemExit(f"训练配置文件不存在：{cfg_path}")
 
     if args.updates is not None:
         cfg.num_updates = args.updates
@@ -453,7 +457,7 @@ def main() -> None:
 
     model = train_mp(cfg, use_multiprocessing=not args.no_mp)
     torch.save(model.state_dict(), args.save)
-    print(f"saved to {args.save}")
+    print(f"模型权重已保存到：{args.save}")
 
 
 if __name__ == "__main__":

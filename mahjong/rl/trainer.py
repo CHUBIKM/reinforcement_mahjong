@@ -29,8 +29,8 @@ except ModuleNotFoundError:  # pragma: no cover
 def require_torch() -> None:
     if torch is None:
         raise RuntimeError(
-            "PyTorch is required for training/evaluation. Install it first, e.g. `pip install torch` "
-            "(or follow the official wheel selector for your OS/device)."
+            "训练或评估需要安装 PyTorch。请先运行 `pip install torch`，"
+            "或按 PyTorch 官方安装页面选择适合当前系统和设备的 wheel。"
         )
 
 
@@ -92,7 +92,7 @@ def _merge_rule_profile(base: RuleProfile, patch: Dict[str, Any]) -> RuleProfile
         return base
     unknown = set(patch.keys()) - _rule_field_names()
     if unknown:
-        raise ValueError(f"Unknown rules keys in train config: {sorted(unknown)}")
+        raise ValueError(f"训练配置 [rules] 中包含未知字段：{sorted(unknown)}")
     return replace(base, **patch)
 
 
@@ -104,22 +104,22 @@ def load_train_config(path: str, base: Optional[TrainConfig] = None) -> TrainCon
     - optional [rules] table for RuleProfile overrides.
     """
     if tomllib is None:
-        raise RuntimeError("tomllib is unavailable in this Python runtime; cannot read TOML train config.")
+        raise RuntimeError("当前 Python 运行时缺少 tomllib，无法读取 TOML 训练配置。")
 
     cfg = base or TrainConfig()
     raw = tomllib.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
-        raise ValueError("Train config TOML must parse to a table/dict.")
+        raise ValueError("训练配置 TOML 必须解析为表/dict。")
 
     raw_rules = raw.get("rules", {})
     if raw_rules is None:
         raw_rules = {}
     if not isinstance(raw_rules, dict):
-        raise ValueError("[rules] in train config must be a table.")
+        raise ValueError("训练配置中的 [rules] 必须是一个表。")
 
     unknown_top = set(raw.keys()) - (_train_config_field_names() | {"rules"})
     if unknown_top:
-        raise ValueError(f"Unknown train config keys: {sorted(unknown_top)}")
+        raise ValueError(f"训练配置中包含未知字段：{sorted(unknown_top)}")
 
     train_patch = {k: v for k, v in raw.items() if k != "rules"}
     if train_patch:
@@ -189,6 +189,28 @@ def _format_duration(seconds: float) -> str:
     return f"{secs:d}s"
 
 
+def _format_training_mode(tag: str) -> str:
+    if tag == "[MP]":
+        return "多进程采样训练"
+    if tag == "[SEQ]":
+        return "单进程顺序训练"
+    return tag.strip("[]") or "训练"
+
+
+def format_train_start(*, tag: str, cfg: TrainConfig, device: str) -> str:
+    mode = _format_training_mode(tag)
+    worker_text = "自动选择" if cfg.num_workers is None else str(cfg.num_workers)
+    return (
+        f"{tag} {mode}开始\n"
+        f"  训练目标：共 {cfg.num_updates} 轮参数更新；每轮先采集 {cfg.target_transitions} 条决策样本，再执行 PPO 优化。\n"
+        f"  并行配置：环境数={cfg.num_envs}，工作进程={worker_text}，运行设备={device}。\n"
+        f"  PPO 配置：每轮优化 epoch={cfg.ppo_epochs}，小批量大小={cfg.ppo_batch_size}，学习率={cfg.lr:g}，"
+        f"折扣因子 gamma={cfg.gamma:g}，GAE lambda={cfg.lam:g}。\n"
+        f"  奖励构成：每步惩罚={cfg.step_penalty:g}，手牌形状奖励系数={cfg.shaping_coef:g}，"
+        f"终局点差缩放={cfg.reward_scale:g}。"
+    )
+
+
 def format_train_status(
     *,
     tag: str,
@@ -208,27 +230,36 @@ def format_train_status(
     eta = (elapsed_total / max(1, update)) * max(0, cfg.num_updates - update)
     total_sps = batch.size / max(update_seconds, 1e-9)
 
-    worker_text = f" workers={stats.get('workers', 1)}" if stats.get("multiprocessing") else ""
     timing_parts = []
     if "collect_seconds" in stats:
-        timing_parts.append(f"collect={stats['collect_seconds']:.2f}s")
-        timing_parts.append(f"collect_sps={stats.get('steps_per_second', 0):.0f}")
+        timing_parts.append(f"采集耗时={stats['collect_seconds']:.2f}s")
+        timing_parts.append(f"采集速度={stats.get('steps_per_second', 0):.0f}步/秒")
     if "update_seconds" in stats:
-        timing_parts.append(f"update={stats['update_seconds']:.2f}s")
-    timing_parts.append(f"total={update_seconds:.2f}s")
-    timing_parts.append(f"sps={total_sps:.0f}")
+        timing_parts.append(f"优化耗时={stats['update_seconds']:.2f}s")
+    timing_parts.append(f"本轮总耗时={update_seconds:.2f}s")
+    timing_parts.append(f"本轮吞吐={total_sps:.0f}样本/秒")
 
     reward_mean = float(np.mean(batch.rew[: batch.size])) if batch.size else 0.0
     reward_std = float(np.std(batch.rew[: batch.size])) if batch.size else 0.0
+    ron_rate = done["ron"] / denom
+    tsumo_rate = done["tsumo"] / denom
+    ryuukyoku_rate = done["ryuukyoku"] / denom
+    mode = _format_training_mode(tag)
+    worker_line = f"，工作进程={stats.get('workers', 1)}" if stats.get("multiprocessing") else ""
+    timing_text = "，".join(timing_parts)
 
     return (
-        f"{tag} [UPD {update}/{cfg.num_updates} {progress:.1%}] "
-        f"device={device}{worker_text} transitions={batch.size} steps={stats['steps']} "
-        f"autoPASS={stats['auto_pass']} terminals={terminal} "
-        f"rate(ron/tsumo/ryu)={done['ron']/denom:.2%}/{done['tsumo']/denom:.2%}/{done['ryuukyoku']/denom:.2%} "
-        f"rew={reward_mean:.4f}+/-{reward_std:.4f} "
-        f"loss={metrics['loss']:.4f} pl={metrics['pl']:.4f} vl={metrics['vl']:.4f} ent={metrics['ent']:.4f} "
-        f"{' '.join(timing_parts)} elapsed={_format_duration(elapsed_total)} eta={_format_duration(eta)}"
+        f"{tag} {mode}状态：第 {update}/{cfg.num_updates} 轮更新（进度 {progress:.1%}）\n"
+        f"  运行配置：设备={device}{worker_line}，环境数={cfg.num_envs}，本轮目标样本={cfg.target_transitions}。\n"
+        f"  数据采集：本轮实际决策样本={batch.size}，环境动作步数={stats['steps']}，"
+        f"自动 PASS 次数={stats['auto_pass']}（只有 PASS 可选时自动跳过）。\n"
+        f"  终局统计：本轮终局数={terminal}；荣和={done['ron']}（{ron_rate:.2%}），"
+        f"自摸={done['tsumo']}（{tsumo_rate:.2%}），流局={done['ryuukyoku']}（{ryuukyoku_rate:.2%}）。\n"
+        f"  奖励统计：平均奖励={reward_mean:.4f}，奖励标准差={reward_std:.4f}；"
+        f"奖励包含每步惩罚、手牌形状变化奖励和终局点差奖励。\n"
+        f"  PPO 优化：总损失={metrics['loss']:.4f}，策略损失={metrics['pl']:.4f}，"
+        f"价值损失={metrics['vl']:.4f}，策略熵={metrics['ent']:.4f}（熵越高表示动作分布越分散）。\n"
+        f"  耗时统计：{timing_text}；累计训练={_format_duration(elapsed_total)}，预计剩余={_format_duration(eta)}。"
     )
 
 
@@ -464,6 +495,8 @@ def train(config: Optional[TrainConfig] = None) -> ActorCritic:
     model = ActorCritic(hidden=cfg.hidden).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
     train_started_at = time.perf_counter()
+    if cfg.log_every > 0:
+        print(format_train_start(tag="[SEQ]", cfg=cfg, device=device))
 
     for upd in range(1, cfg.num_updates + 1):
         update_started_at = time.perf_counter()

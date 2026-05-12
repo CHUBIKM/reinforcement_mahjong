@@ -47,10 +47,10 @@ def train_selfplay_ppo(
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Train or evaluate Mahjong RL policy")
+    p = argparse.ArgumentParser(description="训练或评估日麻强化学习策略")
     sub = p.add_subparsers(dest="cmd", required=False)
 
-    p_train = sub.add_parser("train", help="run PPO training")
+    p_train = sub.add_parser("train", help="运行 PPO 训练")
     p_train.add_argument("--config", type=str, default=DEFAULT_TRAIN_CONFIG_PATH)
     p_train.add_argument("--updates", type=int, default=None)
     p_train.add_argument("--envs", type=int, default=None)
@@ -62,7 +62,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_train.add_argument("--log-every", type=int, default=None)
     p_train.add_argument("--save", type=str, default="ppo_riichi.pt")
 
-    p_eval = sub.add_parser("eval", help="run quick evaluation")
+    p_eval = sub.add_parser("eval", help="运行快速评估")
     p_eval.add_argument("--episodes", type=int, default=8)
     p_eval.add_argument("--device", type=str, default=None)
     p_eval.add_argument("--weights", type=str, default=None)
@@ -83,7 +83,7 @@ if __name__ == "__main__":
                 if cfg_path.exists():
                     cfg = load_train_config(str(cfg_path), base=cfg)
                 elif str(cfg_path) != DEFAULT_TRAIN_CONFIG_PATH:
-                    raise RuntimeError(f"Train config not found: {cfg_path}")
+                    raise RuntimeError(f"训练配置文件不存在：{cfg_path}")
 
             # CLI overrides take precedence over config file.
             if args.updates is not None:
@@ -108,9 +108,9 @@ if __name__ == "__main__":
                 import torch
 
                 torch.save(model.state_dict(), args.save)
-                print(f"saved to {args.save}")
+                print(f"模型权重已保存到：{args.save}")
             except ModuleNotFoundError:
-                raise RuntimeError("PyTorch is not installed; cannot save model weights.")
+                raise RuntimeError("未安装 PyTorch，无法保存模型权重。")
 
         elif cmd == "eval":
             model = ActorCritic()
@@ -121,7 +121,7 @@ if __name__ == "__main__":
                     state = torch.load(args.weights, map_location="cpu")
                     model.load_state_dict(state)
                 except ModuleNotFoundError:
-                    raise RuntimeError("PyTorch is not installed; cannot load model weights.")
+                    raise RuntimeError("未安装 PyTorch，无法加载模型权重。")
             out = evaluate(model, EvalConfig(episodes=args.episodes, device=args.device))
             print(out)
     except RuntimeError as exc:

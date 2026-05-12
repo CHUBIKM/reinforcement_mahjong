@@ -12,14 +12,15 @@ from mahjong.rl.trainer_mp import train_mp
 
 def _run(mode: str, cfg: TrainConfig) -> None:
     use_mp = mode == "mp"
+    mode_text = "多进程采样" if use_mp else "单进程顺序采样"
     start = time.perf_counter()
     train_mp(cfg, use_multiprocessing=use_mp)
     elapsed = max(time.perf_counter() - start, 1e-9)
-    print(f"{mode}: {cfg.target_transitions / elapsed:.1f} target transitions/sec over {elapsed:.2f}s")
+    print(f"{mode_text}：平均吞吐={cfg.target_transitions / elapsed:.1f}目标样本/秒，总耗时={elapsed:.2f}s")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Compare Mahjong RL collection modes")
+    parser = argparse.ArgumentParser(description="对比日麻强化学习训练的单进程与多进程采样速度")
     parser.add_argument("--num-envs", type=int, default=64)
     parser.add_argument("--steps", type=int, default=10000)
     parser.add_argument("--mode", choices=("seq", "mp", "both"), default="both")
